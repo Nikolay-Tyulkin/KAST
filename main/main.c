@@ -1,0 +1,809 @@
+#include <stdbool.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "driver/gpio.h"
+#include "driver/spi_master.h"
+
+#include "esp_adc/adc_oneshot.h"
+#include "esp_check.h"
+#include "esp_err.h"
+#include "esp_lcd_panel_io.h"
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_vendor.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "nvs.h"
+#include "nvs_flash.h"
+
+#include "esp_lvgl_port.h"
+#include "lvgl.h"
+
+#define LCD_H_RES 250
+#define LCD_V_RES 280
+
+#define LCD_HOST SPI3_HOST
+#define LCD_PIXEL_CLOCK_HZ (40 * 1000 * 1000)
+#define LCD_CMD_BITS 8
+#define LCD_PARAM_BITS 8
+#define LCD_BITS_PER_PIXEL 16
+#define LCD_DRAW_BUF_HEIGHT 40
+
+#define PIN_LCD_SCLK GPIO_NUM_6
+#define PIN_LCD_MOSI GPIO_NUM_7
+#define PIN_LCD_RST GPIO_NUM_8
+#define PIN_LCD_DC GPIO_NUM_4
+#define PIN_LCD_CS GPIO_NUM_5
+#define PIN_LCD_BL GPIO_NUM_15
+
+#define PIN_PWR_SYS_OUT GPIO_NUM_40
+#define PIN_PWR_SYS_EN GPIO_NUM_41
+
+#define PIN_BTN_PLUS GPIO_NUM_2
+#define PIN_BTN_MINUS GPIO_NUM_16
+#define PIN_BTN_UNIVERSAL GPIO_NUM_17
+
+#define BAT_ADC_CHANNEL ADC_CHANNEL_0
+#define BAT_ADC_ATTEN ADC_ATTEN_DB_12
+#define BAT_MEASURE_MIN_MV 3300
+#define BAT_MEASURE_MAX_MV 4200
+#define BAT_VOLTAGE_DIVIDER_NUM 3
+#define BAT_VOLTAGE_DIVIDER_DEN 1
+#define BAT_LOW_PERCENT 15
+
+#define UI_TEXT_COLOR lv_color_hex(0x454449)
+#define UI_BG_PALETTE_COUNT 30
+
+#define APP_TICK_MS 50
+#define BUTTON_LONG_MS 1500
+#define RESET_MULTI_CLICK_WINDOW_MS 2000
+#define RESET_CONFIRM_TIMEOUT_MS 5000
+#define HISTORY_MAX 20
+#define HISTORY_MAGIC 0x4b4e4954u
+#define HISTORY_VERSION 1u
+
+typedef enum {
+    SESSION_NONE,
+    SESSION_ACTIVE,
+    SESSION_PAUSED,
+} session_state_t;
+
+typedef enum {
+    SCREEN_MAIN,
+    SCREEN_RESET_CONFIRM,
+    SCREEN_STATS,
+} screen_mode_t;
+
+typedef struct {
+    int rows;
+    int duration_s;
+    int reason;
+} history_entry_t;
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t count;
+    uint32_t next;
+    uint32_t total_rows;
+    uint32_t total_seconds;
+    history_entry_t last;
+    history_entry_t entries[HISTORY_MAX];
+} history_store_t;
+
+typedef struct {
+    gpio_num_t pin;
+    const char *name;
+    int stable_level;
+    int last_raw_level;
+    int64_t last_change_ms;
+    int64_t pressed_at_ms;
+    bool long_reported;
+} button_t;
+
+static const char *TAG = "knitting_assistant";
+
+static esp_lcd_panel_io_handle_t s_lcd_io = NULL;
+static esp_lcd_panel_handle_t s_lcd_panel = NULL;
+static lv_display_t *s_lv_display = NULL;
+static adc_oneshot_unit_handle_t s_adc_handle = NULL;
+
+static lv_obj_t *s_bat_label = NULL;
+static lv_obj_t *s_rows_label = NULL;
+static lv_obj_t *s_rows_label_bold_x = NULL;
+static lv_obj_t *s_rows_label_bold_y = NULL;
+static lv_obj_t *s_color_label = NULL;
+static lv_obj_t *s_version_label = NULL;
+
+static const uint32_t s_bg_palette[UI_BG_PALETTE_COUNT] = {
+    0xD8F1C7, 0xF4EBD0, 0xFFE0E0, 0xFFD1A8, 0xFFF3A3,
+    0xD9F99D, 0xA7F3D0, 0xBFEFE7, 0xBFE3FF, 0xC7D2FE,
+    0xE9D5FF, 0xFBCFE8, 0xFDE68A, 0xFDBA74, 0xFCA5A5,
+    0x86EFAC, 0x5EEAD4, 0x7DD3FC, 0xA5B4FC, 0xD8B4FE,
+    0x14532D, 0x164E63, 0x1E3A8A, 0x312E81, 0x581C87,
+    0x7F1D1D, 0x78350F, 0x365314, 0x374151, 0x111827,
+};
+static int s_bg_palette_index = 14;
+static bool s_palette_mode = false;
+
+static button_t s_btn_plus = { .pin = PIN_BTN_PLUS, .name = "PLUS", .stable_level = 1, .last_raw_level = 1 };
+static button_t s_btn_minus = { .pin = PIN_BTN_MINUS, .name = "MINUS", .stable_level = 1, .last_raw_level = 1 };
+static button_t s_btn_universal = { .pin = PIN_BTN_UNIVERSAL, .name = "UNIVERSAL", .stable_level = 1, .last_raw_level = 1 };
+
+static session_state_t s_session_state = SESSION_NONE;
+static screen_mode_t s_screen_mode = SCREEN_MAIN;
+static history_store_t s_history;
+static int s_rows = 0;
+static int s_bat_percent = 0;
+static int64_t s_session_started_ms = 0;
+static int64_t s_active_started_ms = 0;
+static int64_t s_accumulated_active_ms = 0;
+static int64_t s_reset_confirm_started_ms = 0;
+static int64_t s_last_universal_short_ms = 0;
+static int s_universal_short_count = 0;
+static bool s_ui_dirty = true;
+
+static int64_t now_ms(void)
+{
+    return esp_timer_get_time() / 1000;
+}
+
+static int active_duration_s(void)
+{
+    int64_t active_ms = s_accumulated_active_ms;
+    if (s_session_state == SESSION_ACTIVE) {
+        active_ms += now_ms() - s_active_started_ms;
+    }
+    if (active_ms < 0) {
+        active_ms = 0;
+    }
+    return (int)(active_ms / 1000);
+}
+
+static void history_reset(void)
+{
+    memset(&s_history, 0, sizeof(s_history));
+    s_history.magic = HISTORY_MAGIC;
+    s_history.version = HISTORY_VERSION;
+}
+
+static void storage_save(void)
+{
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("knit", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS open for save failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = nvs_set_blob(handle, "history", &s_history, sizeof(s_history));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS history save failed: %s", esp_err_to_name(err));
+    }
+    nvs_close(handle);
+}
+
+static void storage_load(void)
+{
+    history_reset();
+
+    nvs_handle_t handle;
+    esp_err_t err = nvs_open("knit", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "NVS open for load failed: %s", esp_err_to_name(err));
+        return;
+    }
+
+    size_t size = sizeof(s_history);
+    err = nvs_get_blob(handle, "history", &s_history, &size);
+    nvs_close(handle);
+
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        history_reset();
+        return;
+    }
+    if (err != ESP_OK || size != sizeof(s_history) || s_history.magic != HISTORY_MAGIC || s_history.version != HISTORY_VERSION) {
+        ESP_LOGW(TAG, "Invalid NVS history, starting empty");
+        history_reset();
+    }
+}
+
+static void history_add(int rows, int duration_s, int reason)
+{
+    history_entry_t entry = {
+        .rows = rows,
+        .duration_s = duration_s,
+        .reason = reason,
+    };
+
+    s_history.entries[s_history.next] = entry;
+    s_history.last = entry;
+    s_history.next = (s_history.next + 1) % HISTORY_MAX;
+    if (s_history.count < HISTORY_MAX) {
+        s_history.count++;
+    }
+    s_history.total_rows += rows;
+    s_history.total_seconds += duration_s;
+    storage_save();
+}
+
+static esp_err_t lcd_init(void)
+{
+    gpio_config_t bk_cfg = {
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = 1ULL << PIN_LCD_BL,
+    };
+    ESP_RETURN_ON_ERROR(gpio_config(&bk_cfg), TAG, "LCD BL gpio_config failed");
+
+    spi_bus_config_t buscfg = {
+        .sclk_io_num = PIN_LCD_SCLK,
+        .mosi_io_num = PIN_LCD_MOSI,
+        .miso_io_num = GPIO_NUM_NC,
+        .quadwp_io_num = GPIO_NUM_NC,
+        .quadhd_io_num = GPIO_NUM_NC,
+        .max_transfer_sz = LCD_H_RES * LCD_DRAW_BUF_HEIGHT * sizeof(uint16_t),
+    };
+    ESP_RETURN_ON_ERROR(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO), TAG, "SPI init failed");
+
+    esp_lcd_panel_io_spi_config_t io_config = {
+        .dc_gpio_num = PIN_LCD_DC,
+        .cs_gpio_num = PIN_LCD_CS,
+        .pclk_hz = LCD_PIXEL_CLOCK_HZ,
+        .lcd_cmd_bits = LCD_CMD_BITS,
+        .lcd_param_bits = LCD_PARAM_BITS,
+        .spi_mode = 0,
+        .trans_queue_depth = 10,
+    };
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)LCD_HOST, &io_config, &s_lcd_io), TAG, "new panel IO failed");
+
+    esp_lcd_panel_dev_config_t panel_config = {
+        .reset_gpio_num = PIN_LCD_RST,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .data_endian = LCD_RGB_DATA_ENDIAN_BIG,
+        .bits_per_pixel = LCD_BITS_PER_PIXEL,
+    };
+    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st7789(s_lcd_io, &panel_config, &s_lcd_panel), TAG, "new st7789 panel failed");
+
+    ESP_ERROR_CHECK(esp_lcd_panel_reset(s_lcd_panel));
+    ESP_ERROR_CHECK(esp_lcd_panel_init(s_lcd_panel));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(s_lcd_panel, true, true));
+    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(s_lcd_panel, -10, 20));
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(s_lcd_panel, true));
+    ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(s_lcd_panel, true));
+    ESP_ERROR_CHECK(gpio_set_level(PIN_LCD_BL, 1));
+    return ESP_OK;
+}
+
+static esp_err_t lvgl_init_display(void)
+{
+    const lvgl_port_cfg_t lvgl_cfg = {
+        .task_priority = 4,
+        .task_stack = 4096,
+        .task_affinity = -1,
+        .task_max_sleep_ms = 500,
+        .timer_period_ms = 5,
+    };
+    ESP_RETURN_ON_ERROR(lvgl_port_init(&lvgl_cfg), TAG, "lvgl_port_init failed");
+
+    const lvgl_port_display_cfg_t disp_cfg = {
+        .io_handle = s_lcd_io,
+        .panel_handle = s_lcd_panel,
+        .buffer_size = LCD_H_RES * LCD_DRAW_BUF_HEIGHT * sizeof(uint16_t),
+        .double_buffer = true,
+        .hres = LCD_H_RES,
+        .vres = LCD_V_RES,
+        .monochrome = false,
+        .rotation = {
+            .swap_xy = false,
+            .mirror_x = false,
+            .mirror_y = false,
+        },
+        .flags = {
+            .buff_dma = true,
+            .sw_rotate = true,
+        },
+    };
+
+    s_lv_display = lvgl_port_add_disp(&disp_cfg);
+    if (s_lv_display != NULL) {
+        lv_disp_set_rotation(s_lv_display, LV_DISP_ROT_270);
+    }
+    return (s_lv_display == NULL) ? ESP_FAIL : ESP_OK;
+}
+
+static lv_obj_t *ui_create_rows_label(lv_obj_t *parent, int x_offset, int y_offset)
+{
+    lv_obj_t *label = lv_label_create(parent);
+    lv_obj_set_style_text_color(label, UI_TEXT_COLOR, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_size(label, 280, 70);
+    lv_label_set_text(label, "0");
+    lv_obj_align(label, LV_ALIGN_CENTER, x_offset, y_offset);
+    return label;
+}
+
+static void ui_create(void)
+{
+    lvgl_port_lock(0);
+
+    lv_obj_t *scr = lv_scr_act();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(s_bg_palette[s_bg_palette_index]), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    s_bat_label = lv_label_create(scr);
+    lv_obj_set_style_text_color(s_bat_label, UI_TEXT_COLOR, 0);
+    lv_obj_set_style_text_font(s_bat_label, &lv_font_montserrat_20, 0);
+    lv_label_set_text(s_bat_label, "--%");
+    lv_obj_align(s_bat_label, LV_ALIGN_TOP_MID, 0, 14);
+
+    s_rows_label_bold_x = ui_create_rows_label(scr, 1, 0);
+    s_rows_label_bold_y = ui_create_rows_label(scr, 0, 1);
+    s_rows_label = ui_create_rows_label(scr, 0, 0);
+
+    s_color_label = lv_label_create(scr);
+    lv_obj_set_style_text_color(s_color_label, UI_TEXT_COLOR, 0);
+    lv_obj_set_style_text_font(s_color_label, &lv_font_montserrat_20, 0);
+    lv_label_set_text(s_color_label, "#FCA5A5");
+    lv_obj_align(s_color_label, LV_ALIGN_CENTER, 0, 54);
+    lv_obj_add_flag(s_color_label, LV_OBJ_FLAG_HIDDEN);
+
+    s_version_label = lv_label_create(scr);
+    lv_obj_set_style_text_color(s_version_label, UI_TEXT_COLOR, 0);
+    lv_obj_set_style_text_font(s_version_label, &lv_font_montserrat_14, 0);
+    lv_label_set_text(s_version_label, APP_VERSION);
+    lv_obj_align(s_version_label, LV_ALIGN_BOTTOM_MID, 0, -14);
+
+    lvgl_port_unlock();
+}
+
+static void power_latch_init(void)
+{
+    gpio_config_t cfg_out = {
+        .mode = GPIO_MODE_OUTPUT,
+        .pin_bit_mask = 1ULL << PIN_PWR_SYS_EN,
+    };
+    ESP_ERROR_CHECK(gpio_config(&cfg_out));
+    ESP_ERROR_CHECK(gpio_set_level(PIN_PWR_SYS_EN, 1));
+
+    gpio_config_t cfg_in = {
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = 1ULL << PIN_PWR_SYS_OUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&cfg_in));
+}
+
+static void buttons_init(void)
+{
+    gpio_config_t cfg = {
+        .mode = GPIO_MODE_INPUT,
+        .pin_bit_mask = (1ULL << PIN_BTN_PLUS) | (1ULL << PIN_BTN_MINUS) | (1ULL << PIN_BTN_UNIVERSAL),
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+    };
+    ESP_ERROR_CHECK(gpio_config(&cfg));
+}
+
+static void adc_init_battery(void)
+{
+    adc_oneshot_unit_init_cfg_t unit_cfg = {
+        .unit_id = ADC_UNIT_1,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &s_adc_handle));
+
+    adc_oneshot_chan_cfg_t chan_cfg = {
+        .atten = BAT_ADC_ATTEN,
+        .bitwidth = ADC_BITWIDTH_12,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(s_adc_handle, BAT_ADC_CHANNEL, &chan_cfg));
+}
+
+static int battery_percent_read(void)
+{
+    int raw = 0;
+    if (adc_oneshot_read(s_adc_handle, BAT_ADC_CHANNEL, &raw) != ESP_OK) {
+        return s_bat_percent;
+    }
+
+    int adc_mv = (raw * 3300) / 4095;
+    int bat_mv = (adc_mv * BAT_VOLTAGE_DIVIDER_NUM) / BAT_VOLTAGE_DIVIDER_DEN;
+    int pct = (bat_mv - BAT_MEASURE_MIN_MV) * 100 / (BAT_MEASURE_MAX_MV - BAT_MEASURE_MIN_MV);
+
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    ESP_LOGI(TAG, "Battery ADC raw=%d adc_mv=%d bat_mv=%d pct=%d", raw, adc_mv, bat_mv, pct);
+    return pct;
+}
+
+static void ui_update(void)
+{
+    char bat_buf[32];
+    char rows_buf[16];
+    char color_buf[16];
+    int display_rows = s_rows;
+
+    snprintf(bat_buf, sizeof(bat_buf), "%d%%", s_bat_percent);
+
+    if (s_screen_mode == SCREEN_STATS) {
+        display_rows = s_history.last.rows;
+    }
+    snprintf(rows_buf, sizeof(rows_buf), "%d", display_rows);
+    snprintf(color_buf, sizeof(color_buf), "#%06lX", (unsigned long)s_bg_palette[s_bg_palette_index]);
+
+    lvgl_port_lock(0);
+    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_hex(s_bg_palette[s_bg_palette_index]), 0);
+    lv_label_set_text(s_bat_label, bat_buf);
+    lv_obj_align(s_bat_label, LV_ALIGN_TOP_MID, 0, 14);
+    lv_label_set_text(s_rows_label_bold_x, rows_buf);
+    lv_obj_align(s_rows_label_bold_x, LV_ALIGN_CENTER, 1, 0);
+    lv_label_set_text(s_rows_label_bold_y, rows_buf);
+    lv_obj_align(s_rows_label_bold_y, LV_ALIGN_CENTER, 0, 1);
+    lv_label_set_text(s_rows_label, rows_buf);
+    lv_obj_align(s_rows_label, LV_ALIGN_CENTER, 0, 0);
+    lv_label_set_text(s_color_label, color_buf);
+    lv_obj_align(s_color_label, LV_ALIGN_CENTER, 0, 54);
+    if (s_palette_mode) {
+        lv_obj_clear_flag(s_color_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_color_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_label_set_text(s_version_label, APP_VERSION);
+    lv_obj_align(s_version_label, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lvgl_port_unlock();
+
+    s_ui_dirty = false;
+}
+
+static void session_start(void)
+{
+    s_rows = 0;
+    s_accumulated_active_ms = 0;
+    s_session_started_ms = now_ms();
+    s_active_started_ms = s_session_started_ms;
+    s_session_state = SESSION_ACTIVE;
+    s_screen_mode = SCREEN_MAIN;
+    s_universal_short_count = 0;
+    ESP_LOGI(TAG, "Session started");
+    s_ui_dirty = true;
+}
+
+static void session_pause(void)
+{
+    if (s_session_state != SESSION_ACTIVE) {
+        return;
+    }
+    s_accumulated_active_ms += now_ms() - s_active_started_ms;
+    s_session_state = SESSION_PAUSED;
+    ESP_LOGI(TAG, "Session paused");
+    s_ui_dirty = true;
+}
+
+static void session_resume(void)
+{
+    if (s_session_state != SESSION_PAUSED) {
+        return;
+    }
+    s_active_started_ms = now_ms();
+    s_session_state = SESSION_ACTIVE;
+    ESP_LOGI(TAG, "Session resumed");
+    s_ui_dirty = true;
+}
+
+static void session_finish(int reason)
+{
+    if (s_session_state == SESSION_NONE) {
+        return;
+    }
+    int duration_s = active_duration_s();
+    history_add(s_rows, duration_s, reason);
+    ESP_LOGI(TAG, "Session saved rows=%d duration_s=%d reason=%d", s_rows, duration_s, reason);
+    s_session_state = SESSION_NONE;
+    s_screen_mode = SCREEN_MAIN;
+    s_rows = 0;
+    s_accumulated_active_ms = 0;
+    s_universal_short_count = 0;
+    s_ui_dirty = true;
+}
+
+static void reset_request(void)
+{
+    if (s_session_state == SESSION_NONE) {
+        return;
+    }
+    s_screen_mode = SCREEN_RESET_CONFIRM;
+    s_reset_confirm_started_ms = now_ms();
+    s_universal_short_count = 0;
+    ESP_LOGI(TAG, "RESET_REQUEST");
+    s_ui_dirty = true;
+}
+
+static void reset_confirm(void)
+{
+    if (s_screen_mode != SCREEN_RESET_CONFIRM) {
+        return;
+    }
+    s_rows = 0;
+    s_screen_mode = SCREEN_MAIN;
+    ESP_LOGI(TAG, "Rows reset confirmed");
+    s_ui_dirty = true;
+}
+
+static void stats_toggle(void)
+{
+    s_screen_mode = (s_screen_mode == SCREEN_STATS) ? SCREEN_MAIN : SCREEN_STATS;
+    ESP_LOGI(TAG, "STATS_%s", s_screen_mode == SCREEN_STATS ? "OPEN" : "CLOSE");
+    s_ui_dirty = true;
+}
+
+static void palette_next(void)
+{
+    s_bg_palette_index = (s_bg_palette_index + 1) % UI_BG_PALETTE_COUNT;
+    ESP_LOGI(TAG, "BG_COLOR #%06lX", (unsigned long)s_bg_palette[s_bg_palette_index]);
+    s_ui_dirty = true;
+}
+
+static void palette_mode_toggle(void)
+{
+    s_palette_mode = !s_palette_mode;
+    s_universal_short_count = 0;
+    ESP_LOGI(TAG, "PALETTE_MODE_%s", s_palette_mode ? "ON" : "OFF");
+    s_ui_dirty = true;
+}
+
+static void universal_short(void)
+{
+    if (s_palette_mode) {
+        palette_next();
+        return;
+    }
+
+    int64_t now = now_ms();
+    if (now - s_last_universal_short_ms > RESET_MULTI_CLICK_WINDOW_MS) {
+        s_universal_short_count = 0;
+    }
+    s_last_universal_short_ms = now;
+    s_universal_short_count++;
+
+    if (s_screen_mode == SCREEN_RESET_CONFIRM) {
+        reset_confirm();
+        return;
+    }
+    if (s_screen_mode == SCREEN_STATS) {
+        stats_toggle();
+        return;
+    }
+    if (s_session_state == SESSION_NONE) {
+        session_start();
+    } else if (s_session_state == SESSION_ACTIVE) {
+        session_pause();
+    } else {
+        session_resume();
+    }
+}
+
+static void universal_long(void)
+{
+    int64_t now = now_ms();
+    if (s_universal_short_count >= 3 && now - s_last_universal_short_ms <= RESET_MULTI_CLICK_WINDOW_MS) {
+        reset_request();
+        return;
+    }
+    if (s_screen_mode == SCREEN_STATS) {
+        stats_toggle();
+        return;
+    }
+    session_finish(1);
+}
+
+static void plus_short(void)
+{
+    if (s_screen_mode != SCREEN_MAIN || s_session_state != SESSION_ACTIVE) {
+        return;
+    }
+    s_rows++;
+    ESP_LOGI(TAG, "PLUS_SHORT rows=%d", s_rows);
+    s_ui_dirty = true;
+}
+
+static void minus_short(void)
+{
+    if (s_screen_mode != SCREEN_MAIN || s_session_state != SESSION_ACTIVE) {
+        return;
+    }
+    if (s_rows > 0) {
+        s_rows--;
+    }
+    ESP_LOGI(TAG, "MINUS_SHORT rows=%d", s_rows);
+    s_ui_dirty = true;
+}
+
+static bool button_update(button_t *button, int64_t now, bool *short_event, bool *long_event)
+{
+    *short_event = false;
+    *long_event = false;
+
+    int raw = gpio_get_level(button->pin);
+    if (raw != button->last_raw_level) {
+        button->last_raw_level = raw;
+        button->last_change_ms = now;
+    }
+
+    if (raw != button->stable_level && now - button->last_change_ms >= 40) {
+        button->stable_level = raw;
+        if (raw == 0) {
+            button->pressed_at_ms = now;
+            button->long_reported = false;
+            ESP_LOGI(TAG, "%s_DOWN", button->name);
+        } else {
+            int64_t held_ms = now - button->pressed_at_ms;
+            ESP_LOGI(TAG, "%s_UP held_ms=%lld", button->name, (long long)held_ms);
+            if (!button->long_reported && held_ms < BUTTON_LONG_MS) {
+                *short_event = true;
+            }
+        }
+        return true;
+    }
+
+    if (button->stable_level == 0 && !button->long_reported && now - button->pressed_at_ms >= BUTTON_LONG_MS) {
+        button->long_reported = true;
+        *long_event = true;
+        ESP_LOGI(TAG, "%s_LONG", button->name);
+        return true;
+    }
+
+    return false;
+}
+
+static void handle_power_button(int64_t now)
+{
+    static int prev_pwr = 1;
+    static int64_t pwr_pressed_at_ms = 0;
+    int pwr = gpio_get_level(PIN_PWR_SYS_OUT);
+
+    if (prev_pwr == 1 && pwr == 0) {
+        pwr_pressed_at_ms = now;
+    }
+    if (prev_pwr == 0 && pwr == 1) {
+        int64_t held_ms = now - pwr_pressed_at_ms;
+        if (held_ms >= BUTTON_LONG_MS) {
+            ESP_LOGI(TAG, "POWER_LONG");
+            session_finish(2);
+            storage_save();
+            gpio_set_level(PIN_PWR_SYS_EN, 0);
+        }
+    }
+    prev_pwr = pwr;
+}
+
+static void app_task(void *arg)
+{
+    (void)arg;
+    int battery_tick = 0;
+    int ui_tick = 0;
+
+    while (1) {
+        int64_t now = now_ms();
+        bool plus_short_event = false;
+        bool plus_long_event = false;
+        bool minus_short_event = false;
+        bool minus_long_event = false;
+        bool universal_short_event = false;
+        bool universal_long_event = false;
+
+        button_update(&s_btn_plus, now, &plus_short_event, &plus_long_event);
+        button_update(&s_btn_minus, now, &minus_short_event, &minus_long_event);
+        button_update(&s_btn_universal, now, &universal_short_event, &universal_long_event);
+
+        bool plus_pressed = (s_btn_plus.stable_level == 0);
+        bool minus_pressed = (s_btn_minus.stable_level == 0);
+        bool universal_pressed = (s_btn_universal.stable_level == 0);
+        static bool palette_combo_reported = false;
+        static bool stats_combo_reported = false;
+        static bool suppress_plus_release = false;
+        static bool suppress_minus_release = false;
+        static bool suppress_universal_release = false;
+
+        if (plus_pressed && minus_pressed && universal_pressed && !palette_combo_reported) {
+            palette_combo_reported = true;
+            stats_combo_reported = true;
+            suppress_plus_release = true;
+            suppress_minus_release = true;
+            suppress_universal_release = true;
+            palette_mode_toggle();
+        }
+        if (!plus_pressed || !minus_pressed || !universal_pressed) {
+            palette_combo_reported = false;
+        }
+
+        if (!s_palette_mode && !plus_pressed && minus_pressed && universal_pressed && !stats_combo_reported) {
+            stats_combo_reported = true;
+            suppress_minus_release = true;
+            suppress_universal_release = true;
+            stats_toggle();
+        }
+        if (!minus_pressed || !universal_pressed) {
+            stats_combo_reported = false;
+        }
+
+        if (plus_short_event && suppress_plus_release) {
+            suppress_plus_release = false;
+        } else if (plus_short_event && !s_palette_mode) {
+            plus_short();
+        }
+
+        if (minus_short_event && suppress_minus_release) {
+            suppress_minus_release = false;
+        } else if (minus_short_event && !s_palette_mode) {
+            minus_short();
+        }
+
+        if (universal_short_event && suppress_universal_release) {
+            suppress_universal_release = false;
+        } else if (universal_short_event && !stats_combo_reported) {
+            universal_short();
+        }
+        if (universal_long_event && !plus_pressed && !minus_pressed && !s_palette_mode) {
+            universal_long();
+        }
+
+        handle_power_button(now);
+
+        if (s_screen_mode == SCREEN_RESET_CONFIRM && now - s_reset_confirm_started_ms >= RESET_CONFIRM_TIMEOUT_MS) {
+            s_screen_mode = SCREEN_MAIN;
+            ESP_LOGI(TAG, "Reset confirmation timed out");
+            s_ui_dirty = true;
+        }
+
+        battery_tick += APP_TICK_MS;
+        if (battery_tick >= 1000) {
+            battery_tick = 0;
+            s_bat_percent = battery_percent_read();
+            s_ui_dirty = true;
+        }
+
+        ui_tick += APP_TICK_MS;
+        if (ui_tick >= 250) {
+            ui_tick = 0;
+            if (s_session_state == SESSION_ACTIVE) {
+                s_ui_dirty = true;
+            }
+        }
+        if (s_ui_dirty) {
+            ui_update();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(APP_TICK_MS));
+    }
+}
+
+void app_main(void)
+{
+    ESP_LOGI(TAG, "Starting knitting assistant MVP firmware %s", APP_VERSION);
+
+    esp_err_t nvs_err = nvs_flash_init();
+    if (nvs_err == ESP_ERR_NVS_NO_FREE_PAGES || nvs_err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(nvs_err);
+    storage_load();
+
+    power_latch_init();
+    buttons_init();
+    adc_init_battery();
+
+    ESP_ERROR_CHECK(lcd_init());
+    ESP_ERROR_CHECK(lvgl_init_display());
+    ui_create();
+
+    s_bat_percent = battery_percent_read();
+    ui_update();
+
+    xTaskCreate(app_task, "app_task", 6144, NULL, 5, NULL);
+}
