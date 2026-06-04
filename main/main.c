@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 #include "driver/spi_master.h"
 
 #include "esp_adc/adc_oneshot.h"
@@ -15,6 +16,7 @@
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
+#include "esp_random.h"
 #include "esp_timer.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -41,6 +43,13 @@
 
 #define PIN_PWR_SYS_OUT GPIO_NUM_40
 #define PIN_PWR_SYS_EN GPIO_NUM_41
+#define PIN_BUZZER GPIO_NUM_42
+
+#define BUZZER_LEDC_TIMER LEDC_TIMER_0
+#define BUZZER_LEDC_MODE LEDC_LOW_SPEED_MODE
+#define BUZZER_LEDC_CHANNEL LEDC_CHANNEL_0
+#define BUZZER_DUTY_RES LEDC_TIMER_10_BIT
+#define BUZZER_DUTY 26
 
 #define PIN_BTN_PLUS GPIO_NUM_2
 #define PIN_BTN_MINUS GPIO_NUM_16
@@ -49,16 +58,27 @@
 #define BAT_ADC_CHANNEL ADC_CHANNEL_0
 #define BAT_ADC_ATTEN ADC_ATTEN_DB_12
 #define BAT_MEASURE_MIN_MV 3300
-#define BAT_MEASURE_MAX_MV 4200
+#define BAT_MEASURE_MAX_MV 3840
 #define BAT_VOLTAGE_DIVIDER_NUM 3
 #define BAT_VOLTAGE_DIVIDER_DEN 1
 #define BAT_LOW_PERCENT 15
 
 #define UI_TEXT_COLOR lv_color_hex(0x454449)
+#define UI_MAIN_BG_COLOR lv_color_hex(0xFCA5A5)
+#define UI_PAUSE_BG_COLOR lv_color_hex(0xBFE3FF)
 #define UI_BG_PALETTE_COUNT 30
 
-#define APP_TICK_MS 50
+#define APP_TICK_MS 20
+#define BUTTON_DEBOUNCE_MS 20
 #define BUTTON_LONG_MS 1500
+#define BOOT_ANIMATION_MS 1500
+#define MELODY_NOTE_MS 90
+#define IDLE_BLINK_MS 100
+#define IDLE_BLINK_MIN_MS 2000
+#define IDLE_BLINK_MAX_MS 7000
+#define IDLE_HAPPY_MS 4000
+#define IDLE_HAPPY_MIN_MS 25000
+#define IDLE_HAPPY_MAX_MS 35000
 #define RESET_MULTI_CLICK_WINDOW_MS 2000
 #define RESET_CONFIRM_TIMEOUT_MS 5000
 #define HISTORY_MAX 20
@@ -74,7 +94,6 @@ typedef enum {
 typedef enum {
     SCREEN_MAIN,
     SCREEN_RESET_CONFIRM,
-    SCREEN_STATS,
 } screen_mode_t;
 
 typedef struct {
@@ -115,6 +134,8 @@ static lv_obj_t *s_bat_label = NULL;
 static lv_obj_t *s_rows_label = NULL;
 static lv_obj_t *s_rows_label_bold_x = NULL;
 static lv_obj_t *s_rows_label_bold_y = NULL;
+static lv_obj_t *s_time_label = NULL;
+static lv_obj_t *s_anim_label = NULL;
 static lv_obj_t *s_color_label = NULL;
 static lv_obj_t *s_version_label = NULL;
 
@@ -141,14 +162,96 @@ static int s_bat_percent = 0;
 static int64_t s_session_started_ms = 0;
 static int64_t s_active_started_ms = 0;
 static int64_t s_accumulated_active_ms = 0;
+static int64_t s_boot_until_ms = 0;
+static int64_t s_boot_started_ms = 0;
 static int64_t s_reset_confirm_started_ms = 0;
 static int64_t s_last_universal_short_ms = 0;
 static int s_universal_short_count = 0;
+static int s_melody_note = -1;
+static int64_t s_idle_face_until_ms = 0;
+static int64_t s_idle_next_blink_ms = 0;
+static int64_t s_idle_happy_until_ms = 0;
+static int64_t s_idle_next_happy_ms = 0;
 static bool s_ui_dirty = true;
+
+static const int s_startup_melody_hz[] = {
+    523, 659, 784, 988, 1319, 988, 784, 1047,
+};
 
 static int64_t now_ms(void)
 {
     return esp_timer_get_time() / 1000;
+}
+
+static int64_t random_delay_ms(int min_ms, int max_ms)
+{
+    if (max_ms <= min_ms) {
+        return min_ms;
+    }
+    return min_ms + (esp_random() % (uint32_t)(max_ms - min_ms + 1));
+}
+
+static const char *idle_face_text(int64_t now)
+{
+    if (now < s_idle_happy_until_ms) {
+        return "(^_^)";
+    }
+    if (now < s_idle_face_until_ms) {
+        return "(-_-)";
+    }
+    return "(o_o)";
+}
+
+static void idle_face_schedule_reset(int64_t now)
+{
+    s_idle_face_until_ms = 0;
+    s_idle_happy_until_ms = 0;
+    s_idle_next_blink_ms = now + random_delay_ms(IDLE_BLINK_MIN_MS, IDLE_BLINK_MAX_MS);
+    s_idle_next_happy_ms = now + random_delay_ms(IDLE_HAPPY_MIN_MS, IDLE_HAPPY_MAX_MS);
+}
+
+static void idle_face_update(int64_t now)
+{
+    static bool idle_was_visible = false;
+    bool idle_visible = (s_session_state == SESSION_NONE && s_screen_mode == SCREEN_MAIN);
+
+    if (!idle_visible) {
+        idle_was_visible = false;
+        s_idle_face_until_ms = 0;
+        s_idle_happy_until_ms = 0;
+        return;
+    }
+
+    if (!idle_was_visible || s_idle_next_blink_ms == 0 || s_idle_next_happy_ms == 0) {
+        idle_face_schedule_reset(now);
+        idle_was_visible = true;
+        s_ui_dirty = true;
+        return;
+    }
+
+    if (s_idle_happy_until_ms != 0 && now >= s_idle_happy_until_ms) {
+        s_idle_happy_until_ms = 0;
+        s_idle_next_happy_ms = now + random_delay_ms(IDLE_HAPPY_MIN_MS, IDLE_HAPPY_MAX_MS);
+        s_ui_dirty = true;
+    }
+
+    if (s_idle_face_until_ms != 0 && now >= s_idle_face_until_ms) {
+        s_idle_face_until_ms = 0;
+        s_idle_next_blink_ms = now + random_delay_ms(IDLE_BLINK_MIN_MS, IDLE_BLINK_MAX_MS);
+        s_ui_dirty = true;
+    }
+
+    if (s_idle_happy_until_ms == 0 && now >= s_idle_next_happy_ms) {
+        s_idle_happy_until_ms = now + IDLE_HAPPY_MS;
+        s_idle_face_until_ms = 0;
+        s_ui_dirty = true;
+        return;
+    }
+
+    if (s_idle_happy_until_ms == 0 && s_idle_face_until_ms == 0 && now >= s_idle_next_blink_ms) {
+        s_idle_face_until_ms = now + IDLE_BLINK_MS;
+        s_ui_dirty = true;
+    }
 }
 
 static int active_duration_s(void)
@@ -161,6 +264,14 @@ static int active_duration_s(void)
         active_ms = 0;
     }
     return (int)(active_ms / 1000);
+}
+
+static void format_duration(char *buf, size_t size, int duration_s)
+{
+    int hours = duration_s / 3600;
+    int minutes = (duration_s / 60) % 60;
+    int seconds = duration_s % 60;
+    snprintf(buf, size, "%02d:%02d:%02d", hours, minutes, seconds);
 }
 
 static void history_reset(void)
@@ -334,7 +445,7 @@ static void ui_create(void)
     lvgl_port_lock(0);
 
     lv_obj_t *scr = lv_scr_act();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(s_bg_palette[s_bg_palette_index]), 0);
+    lv_obj_set_style_bg_color(scr, UI_MAIN_BG_COLOR, 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
 
     s_bat_label = lv_label_create(scr);
@@ -346,6 +457,24 @@ static void ui_create(void)
     s_rows_label_bold_x = ui_create_rows_label(scr, 1, 0);
     s_rows_label_bold_y = ui_create_rows_label(scr, 0, 1);
     s_rows_label = ui_create_rows_label(scr, 0, 0);
+
+    s_time_label = lv_label_create(scr);
+    lv_obj_set_style_text_color(s_time_label, UI_TEXT_COLOR, 0);
+    lv_obj_set_style_text_font(s_time_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_align(s_time_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_time_label, "00:00");
+    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, 58);
+
+    s_anim_label = lv_label_create(scr);
+    lv_obj_set_style_text_color(s_anim_label, UI_TEXT_COLOR, 0);
+    lv_obj_set_style_text_font(s_anim_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_align(s_anim_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_line_space(s_anim_label, -2, 0);
+    lv_obj_set_width(s_anim_label, 220);
+    lv_label_set_long_mode(s_anim_label, LV_LABEL_LONG_WRAP);
+    lv_label_set_text(s_anim_label, "");
+    lv_obj_align(s_anim_label, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(s_anim_label, LV_OBJ_FLAG_HIDDEN);
 
     s_color_label = lv_label_create(scr);
     lv_obj_set_style_text_color(s_color_label, UI_TEXT_COLOR, 0);
@@ -378,6 +507,64 @@ static void power_latch_init(void)
         .pull_up_en = GPIO_PULLUP_ENABLE,
     };
     ESP_ERROR_CHECK(gpio_config(&cfg_in));
+}
+
+static void low_power_peripherals_init(void)
+{
+    ledc_timer_config_t timer_cfg = {
+        .speed_mode = BUZZER_LEDC_MODE,
+        .duty_resolution = BUZZER_DUTY_RES,
+        .timer_num = BUZZER_LEDC_TIMER,
+        .freq_hz = 1000,
+        .clk_cfg = LEDC_AUTO_CLK,
+    };
+    ESP_ERROR_CHECK(ledc_timer_config(&timer_cfg));
+
+    ledc_channel_config_t channel_cfg = {
+        .gpio_num = PIN_BUZZER,
+        .speed_mode = BUZZER_LEDC_MODE,
+        .channel = BUZZER_LEDC_CHANNEL,
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = BUZZER_LEDC_TIMER,
+        .duty = 0,
+        .hpoint = 0,
+    };
+    ESP_ERROR_CHECK(ledc_channel_config(&channel_cfg));
+    ESP_ERROR_CHECK(gpio_set_level(PIN_BUZZER, 0));
+}
+
+static void buzzer_tone(int freq_hz)
+{
+    if (freq_hz <= 0) {
+        ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, 0);
+        ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
+        gpio_set_level(PIN_BUZZER, 0);
+        return;
+    }
+    ledc_set_freq(BUZZER_LEDC_MODE, BUZZER_LEDC_TIMER, freq_hz);
+    ledc_set_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL, BUZZER_DUTY);
+    ledc_update_duty(BUZZER_LEDC_MODE, BUZZER_LEDC_CHANNEL);
+}
+
+static void startup_melody_update(int64_t now)
+{
+    if (now >= s_boot_until_ms) {
+        if (s_melody_note != -1) {
+            s_melody_note = -1;
+            buzzer_tone(0);
+        }
+        return;
+    }
+
+    int note = (int)((now - s_boot_started_ms) / MELODY_NOTE_MS);
+    int note_count = (int)(sizeof(s_startup_melody_hz) / sizeof(s_startup_melody_hz[0]));
+    if (note >= note_count) {
+        note = note_count - 1;
+    }
+    if (note != s_melody_note) {
+        s_melody_note = note;
+        buzzer_tone(s_startup_melody_hz[note]);
+    }
 }
 
 static void buttons_init(void)
@@ -425,27 +612,73 @@ static void ui_update(void)
 {
     char bat_buf[32];
     char rows_buf[16];
+    char time_buf[16];
     char color_buf[16];
-    int display_rows = s_rows;
+    int64_t now = now_ms();
+    bool boot_active = now < s_boot_until_ms;
+    bool show_counter = !boot_active && s_session_state == SESSION_ACTIVE && s_screen_mode == SCREEN_MAIN;
+    bool show_idle_prompt = s_session_state == SESSION_NONE && s_screen_mode == SCREEN_MAIN;
+    bool show_pause = !boot_active && s_session_state == SESSION_PAUSED && s_screen_mode == SCREEN_MAIN;
+    bool show_reset = !boot_active && s_screen_mode == SCREEN_RESET_CONFIRM;
+    lv_color_t bg_color = UI_MAIN_BG_COLOR;
 
     snprintf(bat_buf, sizeof(bat_buf), "%d%%", s_bat_percent);
-
-    if (s_screen_mode == SCREEN_STATS) {
-        display_rows = s_history.last.rows;
-    }
-    snprintf(rows_buf, sizeof(rows_buf), "%d", display_rows);
+    snprintf(rows_buf, sizeof(rows_buf), "%d", s_rows);
+    format_duration(time_buf, sizeof(time_buf), active_duration_s());
     snprintf(color_buf, sizeof(color_buf), "#%06lX", (unsigned long)s_bg_palette[s_bg_palette_index]);
 
+    if (show_pause) {
+        bg_color = UI_PAUSE_BG_COLOR;
+    }
+
     lvgl_port_lock(0);
-    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_hex(s_bg_palette[s_bg_palette_index]), 0);
+    lv_obj_set_style_bg_color(lv_scr_act(), bg_color, 0);
     lv_label_set_text(s_bat_label, bat_buf);
     lv_obj_align(s_bat_label, LV_ALIGN_TOP_MID, 0, 14);
+
     lv_label_set_text(s_rows_label_bold_x, rows_buf);
     lv_obj_align(s_rows_label_bold_x, LV_ALIGN_CENTER, 1, 0);
     lv_label_set_text(s_rows_label_bold_y, rows_buf);
     lv_obj_align(s_rows_label_bold_y, LV_ALIGN_CENTER, 0, 1);
     lv_label_set_text(s_rows_label, rows_buf);
     lv_obj_align(s_rows_label, LV_ALIGN_CENTER, 0, 0);
+    if (show_counter) {
+        lv_obj_clear_flag(s_rows_label_bold_x, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_rows_label_bold_y, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_rows_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_rows_label_bold_x, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_rows_label_bold_y, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_rows_label, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_label_set_text(s_time_label, time_buf);
+    lv_obj_align(s_time_label, LV_ALIGN_CENTER, 0, 58);
+    if (show_counter) {
+        lv_obj_clear_flag(s_time_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_time_label, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    if (show_pause) {
+        lv_label_set_text(s_anim_label, "PAUSE");
+    } else if (show_idle_prompt) {
+        lv_label_set_text_fmt(s_anim_label, "%s\n\nTAP (O) TO START", idle_face_text(now));
+    } else {
+        lv_label_set_text(s_anim_label, "RESET?");
+    }
+    lv_obj_align(s_anim_label, LV_ALIGN_CENTER, 0, 0);
+    if (show_pause) {
+        lv_obj_set_style_text_font(s_anim_label, &lv_font_montserrat_48, 0);
+    } else {
+        lv_obj_set_style_text_font(s_anim_label, &lv_font_montserrat_20, 0);
+    }
+    if (show_pause || show_reset || show_idle_prompt) {
+        lv_obj_clear_flag(s_anim_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_anim_label, LV_OBJ_FLAG_HIDDEN);
+    }
+
     lv_label_set_text(s_color_label, color_buf);
     lv_obj_align(s_color_label, LV_ALIGN_CENTER, 0, 54);
     if (s_palette_mode) {
@@ -534,13 +767,6 @@ static void reset_confirm(void)
     s_ui_dirty = true;
 }
 
-static void stats_toggle(void)
-{
-    s_screen_mode = (s_screen_mode == SCREEN_STATS) ? SCREEN_MAIN : SCREEN_STATS;
-    ESP_LOGI(TAG, "STATS_%s", s_screen_mode == SCREEN_STATS ? "OPEN" : "CLOSE");
-    s_ui_dirty = true;
-}
-
 static void palette_next(void)
 {
     s_bg_palette_index = (s_bg_palette_index + 1) % UI_BG_PALETTE_COUNT;
@@ -574,10 +800,6 @@ static void universal_short(void)
         reset_confirm();
         return;
     }
-    if (s_screen_mode == SCREEN_STATS) {
-        stats_toggle();
-        return;
-    }
     if (s_session_state == SESSION_NONE) {
         session_start();
     } else if (s_session_state == SESSION_ACTIVE) {
@@ -592,10 +814,6 @@ static void universal_long(void)
     int64_t now = now_ms();
     if (s_universal_short_count >= 3 && now - s_last_universal_short_ms <= RESET_MULTI_CLICK_WINDOW_MS) {
         reset_request();
-        return;
-    }
-    if (s_screen_mode == SCREEN_STATS) {
-        stats_toggle();
         return;
     }
     session_finish(1);
@@ -634,7 +852,7 @@ static bool button_update(button_t *button, int64_t now, bool *short_event, bool
         button->last_change_ms = now;
     }
 
-    if (raw != button->stable_level && now - button->last_change_ms >= 40) {
+    if (raw != button->stable_level && now - button->last_change_ms >= BUTTON_DEBOUNCE_MS) {
         button->stable_level = raw;
         if (raw == 0) {
             button->pressed_at_ms = now;
@@ -704,14 +922,12 @@ static void app_task(void *arg)
         bool minus_pressed = (s_btn_minus.stable_level == 0);
         bool universal_pressed = (s_btn_universal.stable_level == 0);
         static bool palette_combo_reported = false;
-        static bool stats_combo_reported = false;
         static bool suppress_plus_release = false;
         static bool suppress_minus_release = false;
         static bool suppress_universal_release = false;
 
         if (plus_pressed && minus_pressed && universal_pressed && !palette_combo_reported) {
             palette_combo_reported = true;
-            stats_combo_reported = true;
             suppress_plus_release = true;
             suppress_minus_release = true;
             suppress_universal_release = true;
@@ -719,16 +935,6 @@ static void app_task(void *arg)
         }
         if (!plus_pressed || !minus_pressed || !universal_pressed) {
             palette_combo_reported = false;
-        }
-
-        if (!s_palette_mode && !plus_pressed && minus_pressed && universal_pressed && !stats_combo_reported) {
-            stats_combo_reported = true;
-            suppress_minus_release = true;
-            suppress_universal_release = true;
-            stats_toggle();
-        }
-        if (!minus_pressed || !universal_pressed) {
-            stats_combo_reported = false;
         }
 
         if (plus_short_event && suppress_plus_release) {
@@ -745,7 +951,7 @@ static void app_task(void *arg)
 
         if (universal_short_event && suppress_universal_release) {
             suppress_universal_release = false;
-        } else if (universal_short_event && !stats_combo_reported) {
+        } else if (universal_short_event) {
             universal_short();
         }
         if (universal_long_event && !plus_pressed && !minus_pressed && !s_palette_mode) {
@@ -753,6 +959,8 @@ static void app_task(void *arg)
         }
 
         handle_power_button(now);
+        startup_melody_update(now);
+        idle_face_update(now);
 
         if (s_screen_mode == SCREEN_RESET_CONFIRM && now - s_reset_confirm_started_ms >= RESET_CONFIRM_TIMEOUT_MS) {
             s_screen_mode = SCREEN_MAIN;
@@ -795,12 +1003,15 @@ void app_main(void)
     storage_load();
 
     power_latch_init();
+    low_power_peripherals_init();
     buttons_init();
     adc_init_battery();
 
     ESP_ERROR_CHECK(lcd_init());
     ESP_ERROR_CHECK(lvgl_init_display());
     ui_create();
+    s_boot_started_ms = now_ms();
+    s_boot_until_ms = s_boot_started_ms + BOOT_ANIMATION_MS;
 
     s_bat_percent = battery_percent_read();
     ui_update();
