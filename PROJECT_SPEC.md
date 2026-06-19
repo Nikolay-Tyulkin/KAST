@@ -1,457 +1,383 @@
-# PROJECT_SPEC: Вязальный ассистент
+# PROJECT_SPEC: KAST
 
-## 1. Цель продукта
+## 1. Product Goal
 
-`Вязальный ассистент` — автономное устройство на базе `Waveshare ESP32-S3-LCD-1.69`, которое помогает во время вязания надежно считать ряды, контролировать текущую сессию и видеть состояние батареи.
+KAST is a standalone knitting assistant based on the
+`Waveshare ESP32-S3-LCD-1.69` board. It helps the user count rows reliably
+during knitting, control the current session, and see battery state.
 
-Основная цель MVP — заменить ручной счетчик рядов простым подарочным устройством, которое не требует обучения, работает от батареи и сохраняет историю завершенных сессий.
+The MVP goal is to replace a manual row counter with a simple gift-ready device
+that requires no training, runs from battery power, and keeps local history for
+completed sessions.
 
-Ключевая ценность:
-- пользователь видит крупное число текущих рядов;
-- пользователь быстро добавляет или убирает ряд физическими кнопками;
-- пользователь может начать, поставить на паузу, завершить сессию и открыть базовую статистику;
-- устройство предупреждает о низком заряде;
-- после выключения текущая сессия закрывается и попадает в историю.
+Core value:
 
-## 2. Границы MVP
+- the user sees a large current row count;
+- the user can quickly add or remove one row with physical buttons;
+- the user can start, pause, finish, and inspect basic statistics;
+- the device warns about low battery;
+- on shutdown, the current session is closed and saved to history.
 
-В MVP входит:
-- отображение текущего количества рядов;
-- ручное управление счетчиком рядов кнопками `+` и `-`;
-- универсальная кнопка для управления сессией и статистикой;
-- использование отдельной встроенной кнопки питания платы для включения/выключения;
-- подтверждение перед сбросом рядов;
-- отображение батареи в процентах;
-- предупреждение о низком заряде;
-- отображение таймера текущей сессии в формате `чч:мм:сс`;
-- отображение текущего статуса сессии;
-- отображение версии прошивки внизу экрана;
-- закрытие текущей сессии при выключении или завершении;
-- сохранение завершенных сессий в локальную историю;
-- прошивка для платы `Waveshare ESP32-S3-LCD-1.69` на ESP-IDF.
+## 2. MVP Scope
 
-MVP считается ориентированным на одну текущую активную сессию. После включения новая сессия не стартует автоматически: пользователь должен явно начать ее универсальной кнопкой.
+Included in MVP:
 
-## 3. Целевые пользователи
+- display current row count;
+- manual row counter control with `+` and `-` buttons;
+- universal button for session control, reset confirmation, and statistics;
+- built-in board power button for power on/off;
+- confirmation before row reset;
+- battery percentage display;
+- low-battery warning;
+- current session timer in `hh:mm:ss`;
+- current session status display;
+- firmware version shown at the bottom of the screen;
+- current session closure on shutdown or finish;
+- completed session storage in local NVS history;
+- firmware for `Waveshare ESP32-S3-LCD-1.69` built with ESP-IDF.
 
-Основной пользователь:
-- человек, который вяжет вручную и хочет не сбиваться со счета рядов;
-- пользователь без технической подготовки;
-- пользователь, который получает устройство как подарок и ожидает понятного поведения без настройки.
+The MVP is designed around one current active session. After power-on, a new
+session does not start automatically; the user must explicitly start it with the
+universal button.
 
-Вторичные пользователи:
-- даритель, который хочет передать готовое устройство без объяснения сложных режимов;
-- разработчик/сборщик устройства, который прошивает и проверяет устройство перед передачей.
+Out of scope for MVP:
 
-Требования к UX для целевого пользователя:
-- минимум режимов;
-- крупные цифры;
-- понятные физические действия;
-- защита от случайного сброса;
-- отсутствие необходимости подключать смартфон или компьютер.
+- BLE, Wi-Fi, mobile app, web UI, cloud sync, OTA updates;
+- project lists, user profiles, pattern templates, complex analytics;
+- automatic row detection without a button press;
+- multiple independent row counters;
+- Arduino and PlatformIO builds.
 
-## 4. Пользовательские сценарии
+## 3. Target Users
 
-### 4.1 Включение устройства
+Primary user:
 
-1. Пользователь нажимает кнопку питания на плате.
-2. Устройство включается и удерживает питание.
-3. На экране отображается стартовое состояние без активной сессии.
-4. В верхней правой части экрана отображается заряд батареи.
-5. Внизу экрана отображается версия прошивки.
+- a person who knits by hand and wants to avoid losing row count;
+- a non-technical user;
+- a user who may receive the device as a gift and expects understandable
+  behavior without setup.
 
-Ожидаемый результат: пользователь понимает, что устройство готово, но сессия еще не запущена.
+Secondary users:
 
-### 4.2 Начало новой сессии
+- the gift giver, who wants a ready-to-use device;
+- the developer or assembler, who flashes and checks the device before handoff.
 
-1. Пользователь делает короткое нажатие универсальной кнопки.
-2. Устройство создает новую сессию.
-3. Счетчик рядов устанавливается в `0`.
-4. Таймер сессии начинает отсчет с `00:00:00`.
-5. Статус меняется на активную сессию.
+UX requirements:
 
-Ожидаемый результат: пользователь может начать вязание и считать ряды.
+- minimal modes;
+- large digits;
+- clear physical actions;
+- protection from accidental reset;
+- no phone or computer required for normal use.
 
-### 4.3 Добавление ряда
+## 4. User Scenarios
 
-1. Пользователь завершает ряд в вязании.
-2. Пользователь нажимает кнопку `+`.
-3. Счетчик рядов увеличивается на `1`.
-4. Обновленное число сразу отображается по центру экрана.
+### 4.1 Power On
 
-Ожидаемый результат: каждый завершенный ряд фиксируется одним нажатием.
+1. The user presses the board power button.
+2. The device turns on and holds power through the latch.
+3. The screen shows the no-active-session state.
+4. Battery percentage is visible in the top-right area.
+5. Firmware version is visible at the bottom.
 
-### 4.4 Исправление ошибки счета
+Expected result: the user understands that the device is ready, but no session
+has started yet.
 
-1. Пользователь замечает, что добавил лишний ряд.
-2. Пользователь нажимает кнопку `-`.
-3. Если счетчик больше `0`, число рядов уменьшается на `1`.
-4. Если счетчик равен `0`, значение не становится отрицательным.
+### 4.2 Start New Session
 
-Ожидаемый результат: пользователь может безопасно исправить ошибку.
+1. The user short-presses the universal button.
+2. The device creates a new session.
+3. Row count is set to `0`.
+4. Session timer starts from `00:00:00`.
+5. Status changes to active.
 
-### 4.5 Пауза сессии
+Expected result: the user can start knitting and count rows.
 
-1. Пользователь делает короткое нажатие универсальной кнопки во время активной сессии.
-2. Устройство переводит сессию в паузу.
-3. Таймер сессии останавливается.
-4. Статус на экране показывает паузу.
-5. Повторное короткое нажатие универсальной кнопки возобновляет сессию.
+### 4.3 Add Row
 
-Ожидаемый результат: время перерыва не попадает в длительность активного вязания.
+1. The user completes a knitting row.
+2. The user presses `+`.
+3. Row count increases by `1`.
+4. The updated number is shown immediately in the center of the screen.
 
-### 4.6 Сброс рядов с подтверждением
+Expected result: each completed row is recorded with one press.
 
-1. Пользователь инициирует сброс тремя короткими нажатиями универсальной кнопки и одним длинным нажатием универсальной кнопки после них.
-2. Устройство показывает запрос подтверждения сброса.
-3. Устройство ожидает подтверждение в течение `5 секунд`.
-4. Пользователь подтверждает сброс одним коротким нажатием универсальной кнопки.
-5. Счетчик рядов устанавливается в `0`.
-6. Если пользователь не подтверждает сброс за `5 секунд`, сброс отменяется.
+### 4.4 Correct Counting Error
 
-Ожидаемый результат: случайное нажатие не удаляет текущий счет рядов.
+1. The user notices that one extra row was counted.
+2. The user presses `-`.
+3. If row count is greater than `0`, it decreases by `1`.
+4. If row count is `0`, it remains `0`.
 
-### 4.7 Завершение сессии
+Expected result: the user can correct mistakes without creating negative values.
 
-1. Пользователь завершает вязание на текущий момент.
-2. Пользователь выполняет одно длинное нажатие универсальной кнопки.
-3. Устройство сохраняет сессию в историю.
-4. Сессия получает время начала, время завершения, длительность и итоговое число рядов.
-5. Экран возвращается в состояние без активной сессии.
+### 4.5 Pause and Resume
 
-Ожидаемый результат: текущая работа сохранена в истории, новая сессия начнется отдельно.
+1. During an active session, the user short-presses the universal button.
+2. The device pauses the session.
+3. The clean session timer stops.
+4. The screen shows paused status.
+5. Another short universal-button press resumes the session.
 
-### 4.8 Выключение устройства
+Expected result: break time is not included in active knitting duration.
 
-1. Пользователь выключает устройство кнопкой питания.
-2. Если есть активная или поставленная на паузу сессия, устройство закрывает ее и сохраняет в историю.
-3. Устройство отключает питание.
+### 4.6 Reset Rows With Confirmation
 
-Ожидаемый результат: при следующем включении старая сессия не продолжается автоматически.
+1. The user initiates reset with `3` short universal-button presses followed by
+   `1` long universal-button press within a `2 s` window.
+2. The device shows a reset confirmation prompt.
+3. The device waits up to `5 s` for confirmation.
+4. The user confirms with one short universal-button press.
+5. Row count becomes `0`.
+6. If confirmation does not happen within `5 s`, reset is canceled.
 
-### 4.9 Просмотр статистики
+Expected result: accidental presses do not erase the current row count.
 
-1. Пользователь одновременно зажимает кнопку `-` и универсальную кнопку.
-2. Устройство показывает базовые данные по последней сессии или истории.
-3. Пользователь возвращается к основному экрану.
+### 4.7 Finish Session
 
-Ожидаемый результат: пользователь может посмотреть итог предыдущей работы без подключения к внешним устройствам.
+1. The user finishes the current knitting work.
+2. The user performs one long universal-button press.
+3. The device saves the session to history.
+4. The saved record includes start time, end time, duration, and final row count
+   where available.
+5. The screen returns to no-active-session state.
 
-## 5. Функциональные требования
+Expected result: current work is saved to history and the next session starts
+separately.
 
-### 5.1 Экран
+### 4.8 Power Off
 
-FR-001. Экран должен показывать количество рядов крупным числом по центру.
+1. The user turns off the device with the board power button.
+2. If a session is active or paused, the device closes and saves it.
+3. The device drops the power latch.
 
-FR-002. Экран должен показывать заряд батареи в процентах сверху справа.
+Expected result: the closed session does not resume automatically on next
+power-on.
 
-FR-003. Экран должен показывать таймер текущей сессии в формате `чч:мм:сс`.
+### 4.9 View Statistics
 
-FR-004. Экран должен показывать статус сессии: нет сессии, активна, пауза, подтверждение сброса, низкий заряд.
+1. The user holds `-` and the universal button together.
+2. The device shows basic data from the last session and/or history.
+3. The user can return to the main screen.
 
-FR-005. Экран должен показывать версию прошивки внизу.
+Expected result: the user can inspect previous work without external devices.
 
-FR-006. Текст и цифры должны быть читаемыми на экране `240x280` без необходимости приближать устройство.
+## 5. Functional Requirements
 
-### 5.2 Счет рядов
+### 5.1 Display
 
-FR-007. Кнопка `+` должна увеличивать счетчик рядов на `1` в активной сессии.
+- FR-001. The display shows the current row count as the most prominent element.
+- FR-002. Battery percentage is visible in the top-right area.
+- FR-003. The session timer is shown in `hh:mm:ss`.
+- FR-004. The current status is visible: no session, active, paused, reset
+  confirmation, low battery, or saved.
+- FR-005. Firmware version is visible at the bottom of the screen.
+- FR-006. The UI must remain readable on the `240x280` display.
 
-FR-008. Кнопка `-` должна уменьшать счетчик рядов на `1`, если текущее значение больше `0`.
+### 5.2 Row Counter
 
-FR-009. Счетчик рядов не должен принимать отрицательные значения.
+- FR-010. In an active session, `+` increments row count by `1`.
+- FR-011. In an active session, `-` decrements row count by `1`.
+- FR-012. Row count never goes below `0`.
+- FR-013. Row count changes are shown within `200 ms` after a valid press.
+- FR-014. `+` and `-` do not change rows while the session is paused.
+- FR-015. Without an active session, `+` and `-` do not change rows, except for
+  valid statistics combinations.
 
-FR-010. Изменение счетчика должно отображаться на экране не позднее чем через `200 мс` после корректного нажатия.
+### 5.3 Session Management
 
-FR-011. Кнопки должны иметь защиту от дребезга.
+- FR-020. A short universal-button press starts a session when no session is
+  active.
+- FR-021. A short universal-button press pauses an active session.
+- FR-022. A short universal-button press resumes a paused session.
+- FR-023. A long universal-button press (`1.5 s`) finishes an active or paused
+  session and saves it.
+- FR-024. A session has a clean active timer that excludes pause time.
+- FR-025. Only one session can be active at a time.
 
-### 5.3 Управление сессией
+### 5.4 Row Reset
 
-FR-012. Устройство должно поддерживать состояние без активной сессии после включения.
+- FR-030. Reset requires `3` short universal-button presses followed by `1` long
+  press within a `2 s` window.
+- FR-031. Reset opens a confirmation prompt.
+- FR-032. Confirmation requires one short universal-button press within `5 s`.
+- FR-033. Unconfirmed reset is canceled and row count remains unchanged.
 
-FR-013. Короткое нажатие универсальной кнопки должно запускать новую сессию из состояния без активной сессии.
+### 5.5 Battery and Power
 
-FR-014. Короткое нажатие универсальной кнопки должно ставить активную сессию на паузу.
+- FR-040. Battery is measured through `GPIO1` / `ADC_CHANNEL_0`.
+- FR-041. Battery voltage is calculated from ADC voltage using multiplier `3`.
+- FR-042. Battery percentage is displayed.
+- FR-043. `pct < 15` shows a low-battery warning.
+- FR-044. On normal power-off, an active or paused session is saved before
+  `SYS_EN` is set to `0`.
 
-FR-015. Короткое нажатие универсальной кнопки должно возобновлять сессию из паузы.
+### 5.6 History and Statistics
 
-FR-016. Одно длинное нажатие универсальной кнопки должно завершать текущую сессию.
+- FR-050. Completed sessions are stored locally in NVS.
+- FR-051. MVP history stores the latest `20` completed sessions.
+- FR-052. Statistics show last session, total rows, and total clean time.
+- FR-053. History write happens on finish or normal shutdown, not on every row.
+- FR-054. Empty or unreadable history does not block device startup.
 
-FR-017. При завершении сессии устройство должно сохранять ее в историю.
+### 5.7 Firmware Version
 
-FR-018. При выключении устройства активная или поставленная на паузу сессия должна закрываться и сохраняться в историю.
+- FR-060. Firmware version is set with `PROJECT_VER` in the root
+  `CMakeLists.txt`.
+- FR-061. Version format is `0.0.1-dev.N`.
+- FR-062. `PROJECT_VER` is passed to the firmware as `APP_VERSION`.
+- FR-063. The version is visible on screen and in ESP-IDF application metadata.
 
-FR-019. После включения устройство не должно автоматически продолжать закрытую сессию.
+## 6. Non-Functional Requirements
 
-### 5.4 Сброс рядов
+- NFR-001. Firmware builds with ESP-IDF CLI using `idf.py build`.
+- NFR-002. Target is `esp32s3`.
+- NFR-003. Normal flashing uses `idf.py -p COM14 build flash`.
+- NFR-004. The device works without network connectivity.
+- NFR-005. The UI is readable on the built-in round-corner LCD.
+- NFR-006. Button handling includes debounce.
+- NFR-007. Storage writes are limited to avoid unnecessary flash wear.
+- NFR-008. Battery readings are diagnostic-friendly through monitor logs.
+- NFR-009. Documentation covers buttons, build, flashing, and basic diagnostics.
 
-FR-020. Сброс рядов должен инициироваться последовательностью: три коротких нажатия универсальной кнопки и одно длинное нажатие универсальной кнопки после них.
-
-FR-021. До подтверждения устройство должно явно показывать, что ожидается подтверждение сброса.
-
-FR-022. Если подтверждение не выполнено за `5 секунд`, сброс должен отменяться.
-
-FR-023. Одно короткое нажатие универсальной кнопки в режиме подтверждения сброса должно подтверждать сброс.
-
-FR-024. После подтвержденного сброса счетчик рядов должен стать `0`.
-
-### 5.5 Батарея и питание
-
-FR-025. Устройство должно отображать заряд батареи в процентах.
-
-FR-026. Устройство должно показывать предупреждение о низком заряде.
-
-FR-027. Порог низкого заряда должен быть задан явно в прошивке и описан в документации.
-
-FR-028. Устройство должно удерживать питание после включения через штатную схему платы.
-
-FR-029. Устройство должно корректно отключаться штатной кнопкой питания платы.
-
-### 5.6 История и статистика
-
-FR-030. Устройство должно хранить историю завершенных сессий локально.
-
-FR-031. Для каждой завершенной сессии должны сохраняться итоговые ряды и длительность.
-
-FR-032. Устройство должно открывать базовую статистику при одновременном зажатии кнопки `-` и универсальной кнопки.
-
-FR-033. В MVP статистика может быть ограничена последней сессией и агрегатными значениями, если объем памяти ограничен.
-
-### 5.7 Версия прошивки
-
-FR-034. Версия прошивки должна иметь формат SemVer dev: `0.0.1-dev.N`.
-
-FR-035. Версия прошивки должна отображаться внизу экрана.
-
-FR-036. Версия прошивки должна попадать в ESP-IDF `Application information`.
-
-## 6. Нефункциональные требования
-
-NFR-001. Устройство должно быть понятно без инструкции для базового сценария: включить, начать сессию, добавить ряд, убрать ряд.
-
-NFR-002. Основное число рядов должно быть самым заметным элементом экрана.
-
-NFR-003. Интерфейс должен быть читаемым при обычном настольном освещении.
-
-NFR-004. Прошивка должна собираться локально командой `idf.py build` после активации ESP-IDF PowerShell профиля.
-
-NFR-005. Прошивка должна прошиваться на текущую плату командой `idf.py -p COM14 build flash`, если не указан другой порт.
-
-NFR-006. Устройство должно работать без BLE, Wi-Fi, телефона и облака.
-
-NFR-007. Все пользовательские данные MVP должны храниться локально на устройстве.
-
-NFR-008. Устройство не должно терять завершенную сессию при штатном выключении.
-
-NFR-009. Действия кнопок должны быть устойчивы к дребезгу и случайным одиночным нажатиям в критичных сценариях.
-
-NFR-010. Сборка не должна требовать Arduino или PlatformIO.
-
-NFR-011. Текст UI и документация должны использовать термин `ряды`.
-
-NFR-012. Логи диагностики должны позволять проверить версию прошивки и показания батареи.
-
-## 7. Модель данных на уровне сущностей
+## 7. Data Model
 
 ### 7.1 Session
 
-Сущность текущей или завершенной сессии вязания.
+Fields:
 
-Поля:
-- `id` — локальный идентификатор сессии;
-- `status` — `not_started`, `active`, `paused`, `finished`;
-- `rows_count` — количество рядов;
-- `started_at` — момент начала сессии;
-- `paused_duration_sec` — суммарная длительность пауз;
-- `finished_at` — момент завершения сессии;
-- `duration_sec` — длительность сессии без учета пауз или по выбранному правилу;
-- `finish_reason` — `user_finished`, `power_off`, `battery_shutdown`, `reset`.
+- `id` - session identifier;
+- `state` - none, active, paused, finished;
+- `rows_count` - current or final row count;
+- `started_at` - session start timestamp or uptime;
+- `ended_at` - finish timestamp or uptime;
+- `active_duration_sec` - clean active duration excluding pause time;
+- `pause_started_at` - current pause start time, if paused;
+- `close_reason` - `finished`, `power_off`, or equivalent.
 
 ### 7.2 SessionHistory
 
-Сущность локальной истории завершенных сессий.
+Fields:
 
-Поля:
-- `sessions` — список сохраненных сессий;
-- `max_sessions` — максимальное количество сессий, хранимых в MVP;
-- `last_session_id` — ссылка на последнюю завершенную сессию.
+- `sessions` - saved session list;
+- `max_sessions` - maximum saved sessions in MVP (`20`);
+- `last_session_id` - reference to the latest completed session.
 
 ### 7.3 BatteryState
 
-Сущность состояния батареи.
+Fields:
 
-Поля:
-- `raw_adc` — сырое значение ADC;
-- `adc_mv` — напряжение на ADC-пине;
-- `battery_mv` — расчетное напряжение батареи;
-- `percent` — расчетный процент заряда;
-- `is_low` — признак низкого заряда;
-- `updated_at` — время последнего измерения.
+- `raw_adc` - raw ADC value;
+- `adc_mv` - voltage at the ADC pin;
+- `battery_mv` - calculated battery voltage;
+- `percent` - calculated charge percentage;
+- `is_low` - low-battery flag;
+- `updated_at` - last measurement time.
 
 ### 7.4 DeviceState
 
-Сущность общего состояния устройства.
+Fields:
 
-Поля:
-- `firmware_version` — версия прошивки;
-- `power_state` — включено, выключается;
-- `screen_state` — основной экран, подтверждение сброса, статистика, предупреждение;
-- `active_session_id` — текущая сессия, если она есть.
+- `firmware_version` - firmware version;
+- `power_state` - on or shutting down;
+- `screen_state` - main, reset confirmation, statistics, warning;
+- `active_session_id` - current session if present.
 
 ### 7.5 InputEvent
 
-Сущность события ввода от кнопок.
+Fields:
 
-Поля:
-- `button` — `plus`, `minus`, `universal`, `power`;
-- `event_type` — короткое нажатие, долгое нажатие, повторное подтверждение;
-- `timestamp` — время события;
-- `handled` — обработано или отклонено.
+- `button` - `plus`, `minus`, `universal`, `power`;
+- `event_type` - short press, long press, sequence, combination;
+- `timestamp` - event time;
+- `handled` - handled or rejected.
 
-## 8. Технический стек
+## 8. Technical Stack
 
-Платформа:
+Platform:
+
 - `Waveshare ESP32-S3-LCD-1.69`;
-- микроконтроллер `ESP32-S3`;
-- LCD `240x280`, контроллер ST7789;
-- физические кнопки `+`, `-`, универсальная кнопка и встроенная кнопка питания платы;
-- измерение батареи через `BAT_ADC` на `GPIO1`.
+- `ESP32-S3` microcontroller;
+- `240x280` ST7789 LCD;
+- physical `+`, `-`, universal, and board power buttons;
+- battery measurement through `BAT_ADC` on `GPIO1`.
 
-Прошивка:
+Firmware:
+
 - ESP-IDF CLI;
 - target `esp32s3`;
-- язык C;
+- C;
 - FreeRTOS;
-- LVGL через `esp_lvgl_port`;
-- `esp_lcd` для экрана;
-- `adc_oneshot` для батареи;
-- локальное хранение истории через доступный механизм ESP-IDF, конкретный способ уточняется при реализации.
+- LVGL through `esp_lvgl_port`;
+- `esp_lcd` for display;
+- `adc_oneshot` for battery;
+- NVS for local history.
 
-Подтвержденная локальная среда:
+Confirmed local environment:
+
 - ESP-IDF `v6.0.1`;
 - `IDF_PATH`: `C:\esp\v6.0.1\esp-idf`;
 - `IDF_TOOLS_PATH`: `C:\Espressif\tools`;
-- PowerShell профиль: `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
+- PowerShell profile:
+  `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
 
-Команды:
-- сборка: `idf.py build`;
-- прошивка текущей платы: `idf.py -p COM14 build flash`;
-- монитор логов: `idf.py -p COM14 monitor`;
-- выход из monitor: `Ctrl+]`.
+Commands:
 
-Версионирование:
-- версия задается в корневом `CMakeLists.txt` через `PROJECT_VER`;
-- формат версии: `0.0.1-dev.N`;
-- перед каждой прошивкой dev-счетчик должен увеличиваться на `1`.
+- build: `idf.py build`;
+- flash current board: `idf.py -p COM14 build flash`;
+- monitor: `idf.py -p COM14 monitor`;
+- exit monitor: `Ctrl+]`.
 
-Батарея:
-- `BAT_ADC` подключен к `GPIO1`;
-- в ESP-IDF для ESP32-S3 используется `ADC_CHANNEL_0`;
-- делитель напряжения `R3=200k`, `R7=100k`;
-- коэффициент пересчета напряжения батареи `3`.
+Battery:
 
-## 9. Ограничения и исключения из MVP
+- `BAT_ADC` is connected to `GPIO1`;
+- ESP-IDF channel for ESP32-S3 is `ADC_CHANNEL_0`;
+- divider is `R3=200k`, `R7=100k`;
+- battery voltage multiplier is `3`.
 
-В MVP не входит:
-- BLE;
-- Wi-Fi;
-- синхронизация со смартфоном;
-- облачное хранение;
-- список проектов;
-- профили пользователей;
-- настройка имени изделия;
-- сложные шаблоны вязания;
-- несколько независимых счетчиков рядов;
-- корпус и механическая конструкция;
-- мобильное приложение;
-- web-интерфейс;
-- OTA-обновления;
-- расширенная аналитика;
-- автоматическое определение рядов без нажатия кнопки.
+## 9. Risks and Open Questions
 
-Ограничения MVP:
-- устройство рассчитано на одну активную сессию одновременно;
-- история хранится локально и может быть ограничена объемом памяти;
-- точность процента батареи является приближенной и зависит от калибровки ADC и батареи;
-- универсальная кнопка имеет несколько функций, поэтому сценарии короткого/долгого/повторного нажатия должны быть явно описаны перед реализацией;
-- прошивка ориентирована на конкретную плату `Waveshare ESP32-S3-LCD-1.69`.
+### 9.1 Risks
 
-## 10. Риски и открытые вопросы
+- R-001. The universal button can become overloaded if too many gestures are
+  added.
+- R-002. Users may accidentally finish a session if long-press behavior is not
+  obvious.
+- R-003. Battery percentage may be approximate without calibration.
+- R-004. Frequent flash writes can wear NVS if row changes are persisted too
+  often.
+- R-005. Small text or poor color settings can hurt readability.
+- R-006. Sudden power loss can lose an active session if no checkpoint exists.
+- R-007. Gift-device use requires very simple behavior; complex modes reduce
+  clarity.
 
-### 10.1 Риски
+### 9.2 Open Questions
 
-R-001. Универсальная кнопка может стать перегруженной функциями, если в MVP добавить слишком много сценариев.
+- Q-001. Should long-press finish require an additional confirmation?
+- Q-002. Is `1.5 s` the final long-press threshold?
+- Q-003. Is `15%` the final low-battery threshold?
+- Q-004. Should session duration exclude all pause time? MVP says yes.
+- Q-005. Is `20` completed sessions enough for MVP history?
+- Q-006. Should statistics show only the last session or aggregated totals too?
+- Q-007. Should row changes be allowed while paused? MVP says no.
+- Q-008. What exact text should appear on the no-active-session screen?
 
-R-002. Пользователь может случайно завершить сессию или открыть статистику вместо паузы, если паттерны нажатий будут неочевидными.
+## 10. MVP Acceptance Criteria
 
-R-003. Процент батареи может отличаться от реального заряда без калибровки под конкретную батарею.
-
-R-004. Частая запись истории во flash может привести к лишнему износу памяти, если сохранять состояние слишком часто.
-
-R-005. Мелкий текст или неудачные цвета могут ухудшить читаемость на экране с закругленными углами.
-
-R-006. При резкой потере питания сессия может не успеть корректно закрыться, если не будет предусмотрено безопасное сохранение.
-
-R-007. Сценарий подарочного устройства требует очень простой логики; сложные режимы могут сделать продукт менее понятным.
-
-### 10.2 Открытые вопросы
-
-Q-001. Как различать длинное нажатие для завершения сессии и длинное нажатие в последовательности сброса, чтобы пользователь не завершал сессию случайно?
-
-Q-002. Какой порог длительности использовать для длинного нажатия универсальной кнопки?
-
-Q-003. Какой временной интервал допускается между тремя короткими нажатиями и длинным нажатием в последовательности сброса?
-
-Q-004. Какой порог низкого заряда считать предупреждением: `15%`, `20%` или другое значение?
-
-Q-005. Считать длительность сессии с учетом пауз или исключать время паузы?
-
-Q-006. Сколько завершенных сессий хранить в истории MVP?
-
-Q-007. Что показывать в статистике MVP: только последнюю сессию, суммарные ряды, суммарное время или несколько последних сессий?
-
-Q-008. Нужно ли разрешать добавление и убавление рядов, когда сессия поставлена на паузу?
-
-Q-009. Нужно ли показывать отдельное предупреждение перед завершением сессии длинным нажатием, или завершать сразу?
-
-Q-010. Нужен ли отдельный экран `нет активной сессии`, или достаточно статуса на основном экране?
-
-## Критерии приемки MVP
-
-AC-001. На устройстве отображается версия прошивки в формате `0.0.1-dev.N`.
-
-AC-002. После включения устройство не начинает сессию автоматически.
-
-AC-003. Пользователь может начать новую сессию коротким нажатием универсальной кнопки.
-
-AC-004. В активной сессии кнопка `+` увеличивает ряды на `1`.
-
-AC-005. В активной сессии кнопка `-` уменьшает ряды на `1`, но не ниже `0`.
-
-AC-006. Количество рядов отображается крупно по центру экрана.
-
-AC-007. Батарея отображается сверху справа в процентах.
-
-AC-008. Таймер сессии отображается в формате `чч:мм:сс`.
-
-AC-009. Сброс рядов инициируется тремя короткими нажатиями универсальной кнопки и одним длинным нажатием универсальной кнопки после них.
-
-AC-010. Сброс рядов подтверждается одним коротким нажатием универсальной кнопки в течение `5 секунд`.
-
-AC-011. Завершение сессии выполняется одним длинным нажатием универсальной кнопки.
-
-AC-012. Статистика открывается одновременным зажатием кнопки `-` и универсальной кнопки.
-
-AC-013. Завершенная сессия сохраняется в историю.
-
-AC-014. При выключении активная сессия закрывается и сохраняется в историю.
-
-AC-015. После повторного включения закрытая сессия не продолжается автоматически.
-
-AC-016. При низком заряде пользователь видит предупреждение.
-
-AC-017. Прошивка собирается командой `idf.py build`.
-
-AC-018. Прошивка успешно заливается на плату командой `idf.py -p COM14 build flash`.
-
-AC-019. Документация содержит инструкцию по кнопкам, сборке, прошивке и базовой диагностике.
+- AC-001. Firmware version is displayed in `0.0.1-dev.N` format.
+- AC-002. After power-on, no session starts automatically.
+- AC-003. The user can start a session with one short universal-button press.
+- AC-004. In an active session, `+` increments rows by `1`.
+- AC-005. In an active session, `-` decrements rows by `1`, but not below `0`.
+- AC-006. Row count is displayed large in the center of the screen.
+- AC-007. Battery is displayed as a percentage in the top-right area.
+- AC-008. Session timer is displayed in `hh:mm:ss`.
+- AC-009. Reset requires the specified sequence and confirmation.
+- AC-010. Finishing a session saves it to history.
+- AC-011. Statistics can be opened with `-` plus universal button.
+- AC-012. Normal shutdown saves an active or paused session.
+- AC-013. A closed session does not resume automatically after power-on.
+- AC-014. Low battery shows a warning.
+- AC-015. Firmware builds with `idf.py build`.
+- AC-016. Firmware flashes with `idf.py -p COM14 build flash`.
+- AC-017. Documentation explains buttons, build, flashing, and diagnostics.

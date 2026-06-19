@@ -1,28 +1,30 @@
-# IMPLEMENTATION_PLAN: Вязальный ассистент
+# IMPLEMENTATION_PLAN: KAST
 
-## 1. Цель реализации
+## 1. Implementation Goal
 
-Реализовать MVP прошивки `Вязальный ассистент` для платы `Waveshare ESP32-S3-LCD-1.69` на ESP-IDF.
+Implement the KAST MVP firmware for the `Waveshare ESP32-S3-LCD-1.69` board
+using ESP-IDF.
 
-MVP должен обеспечить:
-- счет рядов кнопками `+` и `-`;
-- управление одной текущей сессией универсальной кнопкой;
-- отдельный экран без активной сессии;
-- таймер сессии без учета пауз;
-- локальную историю последних `20` завершенных сессий;
-- статистику: последняя сессия, суммарные ряды, суммарное чистое время;
-- отображение батареи сверху справа;
-- предупреждение при заряде ниже `15%`;
-- версию прошивки внизу экрана;
-- сборку и прошивку через ESP-IDF CLI.
+The MVP must provide:
 
-Код в рамках этого документа не создается. Документ задает порядок будущей реализации.
+- row counting with `+` and `-`;
+- one current session controlled by the universal button;
+- a no-active-session screen;
+- a clean session timer that excludes pause time;
+- local history for the latest `20` completed sessions;
+- statistics: last session, total rows, total clean time;
+- battery display in the top-right area;
+- low-battery warning below `15%`;
+- firmware version at the bottom of the screen;
+- build and flash through ESP-IDF CLI.
 
-## 2. Целевая структура проекта
+This document defines implementation order. It does not require code to be
+created while planning.
 
-Текущий проект содержит минимальную прошивку в `main/main.c`. Для MVP рекомендуется перейти от одного большого файла к небольшим модулям внутри `main/`.
+## 2. Target Project Structure
 
-Целевая структура:
+The current project has most MVP logic in `main/main.c`. A later cleanup can
+split it into smaller modules under `main/`:
 
 ```text
 knitting_assistant/
@@ -31,6 +33,7 @@ knitting_assistant/
   README.md
   PROJECT_SPEC.md
   IMPLEMENTATION_PLAN.md
+  ACCEPTANCE_CRITERIA.md
   main/
     CMakeLists.txt
     main.c
@@ -53,26 +56,30 @@ knitting_assistant/
     idf_component.yml
 ```
 
-Назначение модулей:
-- `main.c` — инициализация модулей, запуск основной задачи приложения, верхний event loop.
-- `app_config.h` — константы MVP: таймауты, пороги, размеры истории, версия поведения.
-- `board_pins.h` — все GPIO, ADC-каналы, параметры делителя батареи и дисплея.
-- `board_power.*` — удержание питания, чтение встроенной кнопки питания, штатное выключение.
-- `battery.*` — чтение ADC, расчет `adc_mv`, `battery_mv`, процента и признака низкого заряда.
-- `buttons.*` — дебаунс, распознавание коротких/длинных/комбинированных нажатий.
-- `display.*` — инициализация LCD/LVGL, экраны, обновление UI.
-- `session.*` — состояние сессии, счет рядов, таймер без учета пауз, переходы состояний.
-- `storage.*` — сохранение истории сессий и восстановление агрегатов.
-- `time_utils.*` — форматирование времени `чч:мм:сс`, вспомогательные функции времени.
+Module responsibilities:
 
-Минимальный альтернативный вариант:
-- если разбивка на все модули слишком велика для первого шага, начать с `board_pins.h`, `buttons.*`, `session.*`, `display.*`, `battery.*`, оставив `storage` на следующий этап.
+- `main.c` - initialization, application task, top-level event loop;
+- `app_config.h` - timeouts, thresholds, history size, behavior constants;
+- `board_pins.h` - GPIO, ADC channels, display pins, battery divider values;
+- `board_power.*` - power latch, power button, shutdown flow;
+- `battery.*` - ADC reading and conversion to `adc_mv`, `battery_mv`, percent,
+  and low-battery state;
+- `buttons.*` - debounce and short/long/sequence/combination detection;
+- `display.*` - LCD/LVGL initialization, screens, UI updates;
+- `session.*` - session state, row count, clean timer, state transitions;
+- `storage.*` - NVS history and aggregate statistics;
+- `time_utils.*` - `hh:mm:ss` formatting and time helpers.
 
-## 3. GPIO, схемы и подключения
+Minimal alternative: if a full split is too large for the first pass, extract
+`board_pins.h`, `buttons.*`, `session.*`, `display.*`, and `battery.*` first,
+then move storage later.
 
-### 3.1 Подтвержденные пины платы
+## 3. GPIO, Schematics, and Wiring
+
+### 3.1 Confirmed Board Pins
 
 LCD ST7789:
+
 - `LCD_SCLK = GPIO6`;
 - `LCD_MOSI = GPIO7`;
 - `LCD_RST = GPIO8`;
@@ -80,566 +87,569 @@ LCD ST7789:
 - `LCD_CS = GPIO5`;
 - `LCD_BL = GPIO15`.
 
-Питание V2:
+Power latch:
+
 - `SYS_OUT = GPIO40`;
 - `SYS_EN = GPIO41`.
 
-Батарея:
-- `BAT_ADC = GPIO1`;
-- в ESP-IDF для ESP32-S3 это `ADC_UNIT_1`, `ADC_CHANNEL_0`;
-- делитель по схеме Waveshare: `R3=200k`, `R7=100k`;
-- коэффициент пересчета: `3`;
-- формула: `battery_mv = adc_mv * 3`.
+Battery:
 
-I2C на плате:
+- `BAT_ADC = GPIO1`;
+- ESP-IDF on ESP32-S3 uses `ADC_UNIT_1`, `ADC_CHANNEL_0`;
+- Waveshare divider: `R3=200k`, `R7=100k`;
+- multiplier: `3`;
+- formula: `battery_mv = adc_mv * 3`.
+
+I2C on the board:
+
 - `ESP32_SCL = GPIO10`;
 - `ESP32_SDA = GPIO11`;
-- используется RTC/IMU, не занимать под кнопки без явного решения.
+- used by RTC/IMU; do not reuse for buttons without an explicit decision.
 
-Встроенная кнопка питания:
-- аппаратно включает устройство;
-- после включения `SYS_EN` должен удерживаться в `1`;
-- `SYS_OUT` используется как вход для чтения действия кнопки питания;
-- в MVP кнопка питания отвечает за включение/выключение устройства, а не за счет рядов.
+Built-in power button:
 
-### 3.2 Текущие временные кнопки в прошивке
+- powers the board through hardware;
+- after boot, `SYS_EN` must be held at `1`;
+- `SYS_OUT` is used as input to read the power-button action;
+- in MVP, the power button is for power on/off, not row counting.
 
-Сейчас в `main/main.c` используются:
+### 3.2 Previous Temporary Button Pins
+
+Earlier firmware used:
+
 - `PIN_BTN_PLUS = GPIO0`;
 - `PIN_BTN_MINUS = GPIO38`.
 
-Риски текущих пинов:
-- `GPIO0` — boot/strap-кнопка, может мешать режиму загрузки и случайно переводить плату в download mode;
-- `GPIO38` на схеме связан с `QMI_INT2`, его использование под кнопку может конфликтовать с IMU;
-- универсальная кнопка пока не назначена отдельным GPIO.
+Risks:
 
-Вывод: текущие пины подходят для раннего теста, но для MVP их нужно заменить на безопасные внешние GPIO.
+- `GPIO0` is boot/strap related and can affect download mode;
+- `GPIO38` is connected to `QMI_INT2` on the schematic and may conflict with
+  the IMU;
+- the universal button was not assigned to its final GPIO.
 
-### 3.3 Рекомендуемая разводка внешних кнопок MVP
+Conclusion: these pins are acceptable for early tests only. MVP uses the
+confirmed external GPIOs.
 
-Рекомендуемая схема подключения каждой пользовательской кнопки:
+### 3.3 Confirmed External Button Wiring
+
+Each button is wired as:
 
 ```text
-ESP32 GPIO ---- кнопка ---- GND
+ESP32 GPIO ---- button ---- GND
 ```
 
-Настройки GPIO:
-- режим: input;
-- подтяжка: internal pull-up;
-- активный уровень: `0` при нажатии;
-- debounce в прошивке: минимум `30-50 мс`.
+GPIO settings:
 
-Подтвержденное назначение после проверки доступных пинов разъема и тестовой прошивки:
+- mode: input;
+- pull: internal pull-up;
+- active level: `0` when pressed;
+- debounce: at least `30-50 ms`.
+
+Confirmed assignments:
+
 - `BTN_PLUS = GPIO2`;
 - `BTN_MINUS = GPIO16`;
 - `BTN_UNIVERSAL = GPIO17`.
 
-Причины выбора:
-- эти GPIO выведены в pinout/разъем платы и фактически проверены с кнопками;
-- не являются LCD-пинами;
-- не являются `BAT_ADC`;
-- не являются `SYS_EN/SYS_OUT`;
-- не являются I2C `GPIO10/GPIO11`;
-- не используются текущей прошивкой как критичные функции.
+Do not use these pins for external buttons without a separate decision:
 
-Альтернативные GPIO-кандидаты, если разводка платы или провода уже заняты:
-- `GPIO18`;
-- `GPIO21`.
+- `GPIO0` - boot/strap;
+- `GPIO1` - battery;
+- `GPIO4/5/6/7/8/15` - LCD;
+- `GPIO10/11` - I2C;
+- `GPIO38` - `QMI_INT2`;
+- `GPIO39` - `RTC_INT` on V2;
+- `GPIO40/41` - power;
+- `GPIO42` - buzzer on V2;
+- `GPIO43/44` - UART/console;
+- `GPIO45/46` - ESP32-S3 service/strap pins.
 
-Пины, которые не использовать для внешних кнопок без отдельного решения:
-- `GPIO0` — boot/strap;
-- `GPIO1` — батарея;
-- `GPIO4/5/6/7/8/15` — LCD;
-- `GPIO10/11` — I2C;
-- `GPIO38` — `QMI_INT2`;
-- `GPIO39` — `RTC_INT` на V2;
-- `GPIO40/41` — питание;
-- `GPIO42` — buzzer на V2;
-- `GPIO43/44` — UART/console;
-- `GPIO45/46` — служебные/strap-пины ESP32-S3, не использовать без проверки.
+### 3.4 MVP Button Logic
 
-### 3.4 Логика кнопок MVP
+`+` button:
 
-Кнопка `+`:
-- короткое нажатие в активной сессии: `rows_count += 1`;
-- на паузе: запрещено менять ряды;
-- без активной сессии: игнорируется или показывает подсказку `Начните сессию`.
+- short press in active session: `rows_count += 1`;
+- paused: row changes disabled;
+- no active session: ignored or shows a start hint.
 
-Кнопка `-`:
-- короткое нажатие в активной сессии: `rows_count -= 1`, но не ниже `0`;
-- на паузе: запрещено менять ряды;
-- без активной сессии: игнорируется или используется только в комбинации статистики.
+`-` button:
 
-Универсальная кнопка:
-- короткое нажатие без активной сессии: начать новую сессию;
-- короткое нажатие в активной сессии: пауза;
-- короткое нажатие в паузе: продолжить;
-- длинное нажатие `1.5 сек` в активной или paused-сессии: завершить сессию сразу и сохранить в историю;
-- последовательность для сброса: `3` коротких нажатия универсальной кнопки, затем `1` длинное нажатие в течение окна `2 сек`;
-- подтверждение сброса: одно короткое нажатие универсальной кнопки в течение `5 сек`;
-- статистика: одновременно зажать `-` и универсальную кнопку.
+- short press in active session: `rows_count -= 1`, not below `0`;
+- paused: row changes disabled;
+- no active session: ignored except as part of the statistics combination.
 
-Встроенная кнопка питания:
-- включение платы аппаратной схемой;
-- при выключении активная или paused-сессия должна быть закрыта и сохранена;
-- после сохранения `SYS_EN` переводится в `0`.
+Universal button:
 
-## 4. Порядок реализации ПО
+- short press with no active session: start new session;
+- short press in active session: pause;
+- short press in paused session: resume;
+- long press (`1.5 s`) in active or paused session: finish and save session;
+- reset sequence: `3` short presses, then `1` long press within `2 s`;
+- reset confirmation: one short press within `5 s`;
+- statistics: hold `-` and universal together.
 
-### Этап 0. Зафиксировать базовую конфигурацию и версионирование
+Built-in power button:
 
-Цель:
-- обеспечить воспроизводимую сборку, прошивку и видимую версию.
+- powers the board on through hardware;
+- during shutdown, active or paused session must be closed and saved;
+- after saving, set `SYS_EN=0`.
 
-Изменяемые файлы:
+## 4. Software Implementation Order
+
+### Stage 0. Baseline Build and Versioning
+
+Goal:
+
+- ensure reproducible build, flash, and visible firmware version.
+
+Files:
+
 - `CMakeLists.txt`;
 - `main/CMakeLists.txt`;
 - `main/main.c`;
 - `sdkconfig.defaults`;
-- `README.md` при необходимости.
+- `README.md` if needed.
 
-Задачи:
-- убедиться, что `PROJECT_VER` задается в корневом `CMakeLists.txt`;
-- `PROJECT_VER` прокидывается в код как `APP_VERSION`;
-- версия отображается внизу экрана;
-- перед каждой прошивкой увеличивается `0.0.1-dev.N`;
-- оставить текущую проверку `idf.py build`.
+Tasks:
 
-Минимальная проверка:
-- активировать профиль ESP-IDF;
-- выполнить `idf.py build`;
-- прошить по запросу `idf.py -p COM14 build flash`;
-- через monitor проверить `App version: 0.0.1-dev.N`.
+- ensure `PROJECT_VER` is set in the root `CMakeLists.txt`;
+- pass `PROJECT_VER` into firmware as `APP_VERSION`;
+- show version at the bottom of the screen;
+- increment `0.0.1-dev.N` before every flash;
+- keep `idf.py build` as the base check.
 
-Зависимости:
-- нет.
+Minimal checks:
 
-### Этап 1. Выделить board/config слой
+- activate ESP-IDF profile;
+- run `idf.py build`;
+- flash on request with `idf.py -p COM14 build flash`;
+- verify `App version: 0.0.1-dev.N` in monitor or on screen.
 
-Цель:
-- убрать GPIO и аппаратные константы из бизнес-логики.
+Dependencies: none.
 
-Изменяемые файлы:
+### Stage 1. Board and Config Layer
+
+Goal:
+
+- move GPIO and hardware constants out of business logic.
+
+Files:
+
 - `main/board_pins.h`;
 - `main/app_config.h`;
 - `main/main.c`;
 - `main/CMakeLists.txt`.
 
-Задачи:
-- вынести пины LCD, питания, батареи и кнопок в `board_pins.h`;
-- вынести таймауты в `app_config.h`:
-- debounce `30-50 мс`;
-- long press `1500 мс`;
-- reset sequence window `2000 мс`;
-- reset confirmation timeout `5000 мс`;
-- low battery threshold `15%`;
-- history size `20`;
-- зафиксировать рекомендуемые GPIO кнопок и временно оставить совместимость только если физическая разводка еще не готова.
+Tasks:
 
-Минимальная проверка:
+- define LCD, power, battery, and button pins;
+- define timeouts and thresholds:
+  - debounce `30-50 ms`;
+  - long press `1500 ms`;
+  - reset sequence window `2000 ms`;
+  - reset confirmation timeout `5000 ms`;
+  - low battery threshold `15%`;
+  - history size `20`;
+- migrate button pins to `GPIO2`, `GPIO16`, `GPIO17`.
+
+Checks:
+
 - `idf.py build`;
-- прошивка при необходимости;
-- monitor показывает старт и батарею;
-- текущие кнопки продолжают работать, если GPIO еще не заменены.
+- each button generates one clear event in monitor.
 
-Зависимости:
-- Этап 0.
+Dependencies: Stage 0.
 
-### Этап 2. Модуль батареи
+### Stage 2. Battery Module
 
-Цель:
-- сделать батарею отдельным модулем с понятной диагностикой.
+Goal:
 
-Изменяемые файлы:
+- read battery voltage reliably and expose percentage and diagnostics.
+
+Files:
+
 - `main/battery.c`;
 - `main/battery.h`;
 - `main/board_pins.h`;
 - `main/main.c`;
 - `main/CMakeLists.txt`.
 
-Задачи:
-- перенести ADC init и чтение батареи из `main.c`;
-- использовать `GPIO1 -> ADC_CHANNEL_0`;
-- использовать коэффициент делителя `3`;
-- возвращать структуру `BatteryState`: `raw_adc`, `adc_mv`, `battery_mv`, `percent`, `is_low`;
-- оставить monitor-лог `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`;
-- добавить признак низкого заряда ниже `15%`.
+Tasks:
 
-Минимальная проверка:
+- configure ADC oneshot for `ADC_CHANNEL_0`;
+- read raw ADC value;
+- convert to `adc_mv`;
+- calculate `battery_mv = adc_mv * 3`;
+- map voltage to approximate percentage;
+- set low-battery flag below `15%`;
+- log `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`.
+
+Checks:
+
 - `idf.py build`;
-- monitor показывает адекватные значения батареи, например `bat_mv` в диапазоне литиевой батареи;
-- при текущем заряде отображается ненулевой процент;
-- если `pct < 15`, UI получает флаг предупреждения.
+- monitor shows realistic `bat_mv` and percentage;
+- UI shows battery at top-right.
 
-Зависимости:
-- Этап 1.
+Dependencies: Stage 1.
 
-### Этап 3. Модуль кнопок и событий ввода
+### Stage 3. Buttons and Input Events
 
-Цель:
-- заменить простое чтение уровней на обработчик событий кнопок.
+Goal:
 
-Изменяемые файлы:
+- provide stable input events independent from UI and session logic.
+
+Files:
+
 - `main/buttons.c`;
 - `main/buttons.h`;
-- `main/board_pins.h`;
 - `main/app_config.h`;
-- `main/main.c`;
-- `main/CMakeLists.txt`.
+- `main/board_pins.h`;
+- `main/main.c`.
 
-Задачи:
-- реализовать debounce для `+`, `-`, универсальной кнопки, `SYS_OUT`;
-- распознавать короткое нажатие;
-- распознавать длинное нажатие `>= 1500 мс`;
-- распознавать одновременное зажатие `-` и универсальной кнопки для статистики;
-- распознавать reset sequence: `3` коротких + `1` длинное за `2 сек`;
-- формировать события `InputEvent`, не менять состояние сессии внутри модуля кнопок.
+Tasks:
 
-Минимальная проверка:
-- `idf.py build`;
-- через monitor логировать события кнопок: `PLUS_SHORT`, `MINUS_SHORT`, `UNIVERSAL_SHORT`, `UNIVERSAL_LONG`, `RESET_REQUEST`, `STATS_OPEN`, `POWER_LONG`;
-- физически проверить, что одиночное длинное нажатие не считается reset sequence без трех коротких;
-- проверить, что дребезг не создает несколько событий.
+- configure input GPIO with pull-ups;
+- implement debounce;
+- detect short and long press;
+- detect reset sequence;
+- detect `-` plus universal statistics combination;
+- log events during debugging.
 
-Зависимости:
-- Этап 1;
-- физическая разводка рекомендуемых GPIO или подтверждение временных GPIO.
+Checks:
 
-### Этап 4. Модель сессии и счет рядов
+- one physical short press creates one event;
+- long press is detected after `1.5 s`;
+- reset is not triggered by one long press alone.
 
-Цель:
-- реализовать бизнес-логику без привязки к экрану и GPIO.
+Dependencies: Stage 1.
 
-Изменяемые файлы:
+### Stage 4. Session Model and Row Counter
+
+Goal:
+
+- isolate session state transitions from UI.
+
+Files:
+
 - `main/session.c`;
 - `main/session.h`;
 - `main/time_utils.c`;
 - `main/time_utils.h`;
-- `main/main.c`;
-- `main/CMakeLists.txt`.
+- `main/main.c`.
 
-Задачи:
-- ввести состояния: `not_started`, `active`, `paused`, `confirm_reset`, `stats`, `finished`;
-- короткое нажатие универсальной кнопки без сессии начинает новую сессию;
-- короткое нажатие в active ставит паузу;
-- короткое нажатие в paused продолжает;
-- `+/-` меняют ряды только в active;
-- `-` не опускает ряды ниже `0`;
-- таймер считает чистое время активной сессии, исключая паузы;
-- reset request переводит в `confirm_reset`;
-- короткое нажатие в `confirm_reset` за `5 сек` сбрасывает ряды;
-- истечение `5 сек` отменяет сброс;
-- длинное нажатие универсальной кнопки завершает сессию сразу.
+Tasks:
 
-Минимальная проверка:
-- `idf.py build`;
-- monitor показывает переходы состояний;
-- `+` работает только в active;
-- `-` работает только в active и не уходит ниже `0`;
-- пауза останавливает чистый таймер;
-- reset требует последовательность и подтверждение;
-- завершение создает объект завершенной сессии в памяти.
+- implement states: no session, active, paused, reset confirmation, statistics;
+- implement start, pause, resume, finish;
+- implement row increment/decrement with lower bound `0`;
+- implement clean timer excluding pause time;
+- implement reset confirmation behavior;
+- create a completed-session record.
 
-Зависимости:
-- Этап 3.
+Checks:
 
-### Этап 5. UI и экраны
+- scenario transitions match acceptance criteria;
+- `+/-` are disabled while paused;
+- no active session starts automatically after boot.
 
-Цель:
-- реализовать экраны MVP поверх `display.*`, не смешивая UI с логикой сессии.
+Dependencies: Stage 3.
 
-Изменяемые файлы:
+### Stage 5. UI and Screens
+
+Goal:
+
+- make the device readable and useful on the built-in screen.
+
+Files:
+
 - `main/display.c`;
 - `main/display.h`;
-- `main/session.h`;
-- `main/battery.h`;
 - `main/main.c`;
-- `sdkconfig.defaults` при необходимости шрифтов;
-- `main/CMakeLists.txt`.
 
-Экраны:
-- `No active session` — отдельный экран без активной сессии: подсказка `Старт`, батарея, версия, возможно итог последней сессии;
-- `Active` — батарея сверху справа, ряды крупно по центру, таймер `чч:мм:сс`, статус;
-- `Paused` — те же данные, но явный статус `Пауза`;
-- `Confirm reset` — предупреждение и обратный отсчет `5 сек`;
-- `Stats` — последняя сессия, суммарные ряды, суммарное чистое время;
-- `Low battery` — предупреждение при `pct < 15`.
+Tasks:
 
-Задачи:
-- перенести текущий LVGL-код в `display.*`;
-- сделать обновление UI через структуру `ViewModel` или набор функций `display_show_*`;
-- не перерисовывать весь экран при каждом tick, обновлять только изменившиеся label;
-- сохранить версию внизу;
-- проверить читаемость крупного текста;
-- не использовать BLE/Wi-Fi/сложные меню.
+- build main screen with large row count;
+- show battery percentage at top-right;
+- show timer and status;
+- show firmware version at the bottom;
+- show reset confirmation screen;
+- show statistics screen;
+- show low-battery state;
+- keep text readable on `240x280`.
 
-Минимальная проверка:
-- `idf.py build`;
-- прошивка на `COM14`;
-- визуально проверить все экраны;
-- monitor подтверждает версию и батарею;
-- проверить, что UI обновляется не позже `200 мс` после нажатия.
+Checks:
 
-Зависимости:
-- Этап 2;
-- Этап 4;
-- шрифты LVGL должны быть включены в `sdkconfig.defaults`.
+- screen is readable on the real device;
+- rows are the most prominent element;
+- version is visible at the bottom.
 
-### Этап 6. Локальное хранение истории
+Dependencies: Stages 2 and 4.
 
-Цель:
-- сохранять завершенные сессии локально и восстанавливать статистику после перезапуска.
+### Stage 6. Local History Storage
 
-Изменяемые файлы:
+Goal:
+
+- persist completed sessions and aggregate statistics in NVS.
+
+Files:
+
 - `main/storage.c`;
 - `main/storage.h`;
 - `main/session.c`;
 - `main/main.c`;
-- `main/CMakeLists.txt`;
-- `sdkconfig.defaults` при необходимости NVS.
 
-Рекомендуемый механизм MVP:
-- NVS blob или компактная структура в NVS;
-- хранить кольцевой буфер из `20` сессий;
-- хранить агрегаты: суммарные ряды, суммарное чистое время, количество завершенных сессий;
-- запись выполнять только при завершении/закрытии сессии, а не на каждый ряд.
+Tasks:
 
-Задачи:
-- определить компактную структуру `StoredSession`;
-- реализовать загрузку истории на старте;
-- реализовать сохранение завершенной сессии;
-- реализовать обрезку истории до `20` записей;
-- реализовать статистику последней сессии и агрегатов;
-- обработать ошибку чтения NVS: начать с пустой истории и залогировать предупреждение.
+- initialize NVS;
+- store completed sessions on finish or normal shutdown;
+- keep the latest `20` sessions;
+- compute last session, total rows, total clean time;
+- tolerate empty or unreadable history.
 
-Минимальная проверка:
-- `idf.py build`;
-- создать сессию, добавить ряды, завершить;
-- перезагрузить устройство;
-- открыть статистику и убедиться, что последняя сессия восстановлена;
-- создать больше `20` тестовых сессий и проверить, что история не растет бесконечно.
+Checks:
 
-Зависимости:
-- Этап 4;
-- Этап 5 для отображения статистики.
+- history survives reboot;
+- more than `20` sessions keeps the latest `20`;
+- NVS read errors do not block startup.
 
-### Этап 7. Штатное выключение и закрытие сессии
+Dependencies: Stage 4.
 
-Цель:
-- гарантировать закрытие активной или paused-сессии перед отключением питания.
+### Stage 7. Normal Shutdown
 
-Изменяемые файлы:
+Goal:
+
+- save the current session before power is dropped.
+
+Files:
+
 - `main/board_power.c`;
 - `main/board_power.h`;
 - `main/session.c`;
 - `main/storage.c`;
 - `main/main.c`.
 
-Задачи:
-- выделить управление `SYS_EN` и чтение `SYS_OUT`;
-- при событии выключения закрывать текущую сессию с `finish_reason = power_off`;
-- сохранить сессию в историю;
-- показать короткий статус `Сохранено` или `Выключение`;
-- после сохранения перевести `SYS_EN` в `0`;
-- предусмотреть timeout на сохранение, чтобы не зависнуть перед выключением.
+Tasks:
 
-Минимальная проверка:
-- `idf.py build`;
-- создать активную сессию;
-- выключить через кнопку питания;
-- включить снова;
-- открыть статистику и проверить, что сессия сохранена;
-- проверить monitor-лог закрытия с `finish_reason=power_off`.
+- read power-button action through `SYS_OUT`;
+- close active or paused session with reason `power_off`;
+- save session to NVS;
+- set `SYS_EN=0` after saving.
 
-Зависимости:
-- Этап 6;
-- Этап 3 для событий кнопки питания.
+Checks:
 
-### Этап 8. Документация и финальная приемка MVP
+- active or paused session appears in history after power-cycle;
+- closed session does not resume automatically.
 
-Цель:
-- подготовить устройство к передаче как подарочный продукт.
+Dependencies: Stage 6.
 
-Изменяемые файлы:
+### Stage 8. Documentation and Final MVP Acceptance
+
+Goal:
+
+- align docs with actual firmware and hardware behavior.
+
+Files:
+
 - `README.md`;
-- `PROJECT_SPEC.md` при уточнении требований;
-- `IMPLEMENTATION_PLAN.md` при изменении плана;
-- `AGENTS.md`, `TOOLS.md`, `SKILLS.md` при появлении новых проверенных команд или ограничений.
+- `PROJECT_SPEC.md`;
+- `IMPLEMENTATION_PLAN.md`;
+- `ACCEPTANCE_CRITERIA.md`;
+- `hardware/`.
 
-Задачи:
-- описать кнопки и действия;
-- описать экраны;
-- описать сборку и прошивку;
-- описать проверку батареи через monitor;
-- описать troubleshooting: не прошивается, показывает 0% батареи, не работает кнопка, не видна версия;
-- выполнить финальную сборку и прошивку с новым `PROJECT_VER`.
+Tasks:
 
-Минимальная проверка:
+- document build, flash, monitor, and ESP-IDF profile activation;
+- document button wiring and GPIOs;
+- document reset sequence;
+- document battery ADC mapping;
+- document versioning workflow;
+- run the acceptance smoke scenario on device when requested.
+
+Checks:
+
 - `idf.py build`;
-- `idf.py -p COM14 build flash`;
-- `idf.py -p COM14 monitor`;
-- визуально проверить версию на экране;
-- проверить старт сессии, `+`, `-`, паузу, сброс с подтверждением, завершение, статистику, выключение с сохранением;
-- проверить предупреждение низкого заряда через временную тестовую настройку порога или mock-режим, если реальная батарея не ниже `15%`.
+- `idf.py -p COM14 build flash` when flashing is requested;
+- `idf.py -p COM14 monitor` for logs;
+- verify start, `+`, `-`, pause, reset confirmation, finish, statistics, and
+  shutdown with saving.
 
-Зависимости:
-- все предыдущие этапы.
+Dependencies: all previous stages.
 
-## 5. Зависимости между этапами
+## 5. Stage Dependencies
 
-Основная последовательность:
+Main order:
 
 ```text
-Этап 0 -> Этап 1 -> Этап 2
-                 -> Этап 3 -> Этап 4 -> Этап 5 -> Этап 6 -> Этап 7 -> Этап 8
+Stage 0 -> Stage 1 -> Stage 2
+                    -> Stage 3 -> Stage 4 -> Stage 5 -> Stage 6 -> Stage 7 -> Stage 8
 ```
 
-Детали зависимостей:
-- батарея может быть вынесена до полной реализации кнопок;
-- UI можно развивать параллельно с session state, если заранее определить `ViewModel`;
-- хранение истории зависит от модели завершенной сессии;
-- штатное выключение зависит от хранения, иначе сессию негде сохранить;
-- документацию можно обновлять по мере реализации, но финальная инструкция зависит от фактических сценариев кнопок.
+Notes:
 
-Критичные блокеры:
-- без подтвержденной разводки `BTN_PLUS`, `BTN_MINUS`, `BTN_UNIVERSAL` нельзя финально закрепить `board_pins.h`;
-- без стабильной обработки кнопок нельзя корректно реализовать сброс, статистику и завершение;
-- без storage нельзя выполнить требование закрытия сессии при выключении.
+- battery can be implemented before complete button logic;
+- UI can evolve in parallel with session state if a stable view model exists;
+- history depends on the completed-session model;
+- normal shutdown depends on storage;
+- final docs depend on actual button behavior.
 
-## 6. Минимальные проверки по этапам
+Critical blockers:
 
-Общие проверки для каждого этапа:
-- активировать ESP-IDF PowerShell профиль: `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`;
-- выполнить `idf.py build`;
-- перед прошивкой увеличить `PROJECT_VER` на следующий `0.0.1-dev.N`;
-- при прошивке использовать `idf.py -p COM14 build flash`;
-- при проверке логов использовать `idf.py -p COM14 monitor`;
-- выход из monitor: `Ctrl+]`.
+- final `board_pins.h` depends on confirmed `BTN_PLUS`, `BTN_MINUS`, and
+  `BTN_UNIVERSAL` wiring;
+- reset, statistics, and finish require stable button event handling;
+- shutdown saving requires storage.
 
-Этапные smoke-проверки:
-- Этап 0: версия видна в ESP-IDF `Application information` и внизу экрана.
-- Этап 1: проект собирается после выноса pin/config, поведение не ухудшилось.
-- Этап 2: батарея показывает реалистичный `bat_mv` и процент, monitor содержит raw/adc/bat/pct.
-- Этап 3: каждое нажатие дает ровно одно событие, длинное нажатие определяется после `1.5 сек`.
-- Этап 4: состояние сессии меняется по сценариям, `+/-` запрещены на паузе.
-- Этап 5: все экраны читаемы, ряды крупно по центру, батарея сверху справа.
-- Этап 6: история сохраняется после перезагрузки, ограничение `20` сессий работает.
-- Этап 7: выключение закрывает и сохраняет сессию до `SYS_EN=0`.
-- Этап 8: вся приемка MVP проходит на устройстве.
+## 6. Minimum Checks by Stage
 
-## 7. Риски и способы снижения
+General checks:
 
-### R-001. Неверный выбор GPIO для внешних кнопок
+- activate ESP-IDF profile:
+  `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`;
+- run `idf.py build`;
+- before flashing, increment `PROJECT_VER` to the next `0.0.1-dev.N`;
+- flash with `idf.py -p COM14 build flash`;
+- monitor with `idf.py -p COM14 monitor`;
+- exit monitor with `Ctrl+]`.
 
-Риск:
-- выбранный GPIO конфликтует с boot, LCD, I2C, IMU, RTC, питанием или UART.
+Stage smoke checks:
 
-Снижение:
-- держать все GPIO в `board_pins.h`;
-- не использовать `GPIO0`, `GPIO1`, `GPIO4-8`, `GPIO10-11`, `GPIO15`, `GPIO38-42`, `GPIO43-46` без явной причины;
-- перед пайкой проверить выбранные GPIO в pinout и простым тестом на monitor;
-- оставить список альтернативных GPIO.
+- Stage 0: version is visible in ESP-IDF `Application information` and at the
+  bottom of the screen.
+- Stage 1: build works after pin/config extraction.
+- Stage 2: battery shows realistic `bat_mv` and percentage; monitor logs raw,
+  ADC, battery voltage, and percentage.
+- Stage 3: each press creates exactly one event; long press is detected after
+  `1.5 s`.
+- Stage 4: session state follows scenarios; `+/-` are disabled while paused.
+- Stage 5: all screens are readable; rows are large and centered.
+- Stage 6: history survives reboot and keeps the latest `20` sessions.
+- Stage 7: shutdown closes and saves session before `SYS_EN=0`.
+- Stage 8: full MVP acceptance passes on the device.
 
-### R-002. Сложность универсальной кнопки
+## 7. Risks and Mitigations
 
-Риск:
-- короткое/длинное/серия/комбинация становятся непонятными для подарочного устройства.
+### R-001. Wrong GPIO Choice for External Buttons
 
-Снижение:
-- все события кнопки логировать в monitor на этапе отладки;
-- на экране показывать подсказки в режимах подтверждения;
-- reset делать только через редкую последовательность `3 коротких + длинное` и подтверждение;
-- статистику открыть отдельной комбинацией `- + universal`.
+Risk: chosen GPIO conflicts with boot, LCD, I2C, IMU, RTC, power, or UART.
 
-### R-003. Случайное завершение сессии длинным нажатием
+Mitigation:
 
-Риск:
-- пользователь держит кнопку слишком долго и завершает сессию.
+- keep all GPIOs in `board_pins.h`;
+- do not use known reserved pins without explicit reason;
+- verify selected GPIOs through pinout and monitor test before soldering;
+- keep alternative candidates documented.
 
-Снижение:
-- после завершения сразу сохранять сессию в историю;
-- на экране показать `Сессия сохранена`;
-- при необходимости добавить undo в будущем, но не включать в MVP без отдельного требования.
+### R-002. Universal Button Complexity
 
-### R-004. Износ flash из-за частых записей
+Risk: short, long, sequence, and combination gestures become confusing.
 
-Риск:
-- запись на каждый ряд быстро изнашивает NVS/flash.
+Mitigation:
 
-Снижение:
-- в MVP сохранять историю только при завершении/выключении;
-- промежуточные изменения держать в RAM;
-- при необходимости добавить периодический checkpoint позже.
+- log all button events during debugging;
+- show clear confirmation prompts;
+- make reset require the rare `3 short + long` sequence plus confirmation;
+- keep statistics on a separate `- + universal` combination.
 
-### R-005. Потеря активной сессии при резком отключении питания
+### R-003. Accidental Session Finish
 
-Риск:
-- батарея отсоединена или питание пропало до сохранения.
+Risk: the user holds the universal button too long and finishes a session.
 
-Снижение:
-- штатное выключение всегда идет через `SYS_OUT -> save -> SYS_EN=0`;
-- показывать предупреждение низкого заряда при `15%`;
-- рассмотреть checkpoint активной сессии как post-MVP, если риск окажется критичным.
+Mitigation:
 
-### R-006. Неточная батарея
+- save immediately after finish;
+- show a saved status;
+- consider undo later, but keep it out of MVP unless separately specified.
 
-Риск:
-- ADC без калибровки дает приблизительный процент.
+### R-004. Flash Wear From Frequent Writes
 
-Снижение:
-- использовать правильный канал `ADC_CHANNEL_0` для `GPIO1`;
-- использовать коэффициент делителя `3`;
-- логировать `raw`, `adc_mv`, `bat_mv`, `pct`;
-- при необходимости добавить калибровку ADC или таблицу разряда позже.
+Risk: writing every row quickly wears NVS/flash.
 
-### R-007. Проблемы читаемости экрана
+Mitigation:
 
-Риск:
-- мелкий текст, цветные артефакты или неподходящий порядок RGB/BGR ухудшают UX.
+- save history only on finish or normal shutdown in MVP;
+- keep intermediate state in RAM;
+- add periodic checkpoints later only if needed.
 
-Снижение:
-- использовать крупные шрифты для рядов;
-- держать главный экран минимальным;
-- проверять на реальном экране после каждого изменения UI;
-- если останутся артефакты, проверить `LV_COLOR_16_SWAP`, `data_endian`, RGB/BGR и настройки ST7789.
+### R-005. Active Session Loss on Sudden Power Loss
 
-### R-008. Увеличение размера прошивки из-за LVGL шрифтов
+Risk: battery disconnect or power loss occurs before saving.
 
-Риск:
-- подключение крупных шрифтов увеличивает binary.
+Mitigation:
 
-Снижение:
-- включать только реально используемые размеры;
-- не включать LVGL demos/examples, если они не нужны;
-- следить за `Smallest app partition` после сборки.
+- normal shutdown always follows `SYS_OUT -> save -> SYS_EN=0`;
+- warn on low battery at `15%`;
+- consider active-session checkpoints post-MVP if the risk becomes critical.
 
-## 8. Решения, которые еще требуют подтверждения
+### R-006. Inaccurate Battery
 
-Подтвердить перед реализацией аппаратной части:
-- фактические GPIO для внешних кнопок `+`, `-`, `universal` после разводки или пайки;
-- нужно ли заменить текущие временные `GPIO0/GPIO38` уже на первом этапе реализации;
-- куда физически выведены провода кнопок на текущем экземпляре устройства.
+Risk: ADC without calibration gives an approximate percentage.
 
-Подтвердить перед реализацией UI:
-- язык надписей на экране: русский (`РЯДЫ`, `ПАУЗА`) или английский (`ROWS`, `PAUSE`);
-- показывать ли итог последней сессии на экране `нет активной сессии` или только подсказку старта;
-- показывать ли предупреждение низкого заряда поверх всех экранов или как отдельный статус.
+Mitigation:
 
-Подтвердить перед реализацией хранения:
-- достаточно ли хранить `20` сессий без дат реального календаря, если RTC не будет настроен;
-- нужна ли очистка истории через скрытую комбинацию кнопок или это вне MVP.
+- use the correct `ADC_CHANNEL_0` for `GPIO1`;
+- use divider multiplier `3`;
+- log `raw`, `adc_mv`, `bat_mv`, `pct`;
+- add ADC calibration or a discharge table later if needed.
 
-## 9. Критерий готовности плана к реализации
+### R-007. Screen Readability Issues
 
-Переходить к коду можно после подтверждения:
-- выбранных GPIO для трех пользовательских кнопок;
-- языка UI;
-- поведения экрана `нет активной сессии`;
-- формата статистики на экране;
-- решения по хранению времени: только uptime-секунды или привязка к RTC.
+Risk: small text, color artifacts, or wrong RGB/BGR settings hurt UX.
 
-Если эти решения не подтверждены, реализацию можно начинать с безопасных этапов:
-- Этап 0;
-- Этап 1;
-- Этап 2;
-- частично Этап 4 через unit-like логику в C без финального GPIO.
+Mitigation:
+
+- use large fonts for rows;
+- keep the main screen minimal;
+- verify on the real display after UI changes;
+- if artifacts remain, check `LV_COLOR_16_SWAP`, data endian, RGB/BGR, and
+  ST7789 settings.
+
+### R-008. Firmware Size Growth From LVGL Fonts
+
+Risk: large fonts increase binary size.
+
+Mitigation:
+
+- include only used font sizes;
+- do not include LVGL demos/examples unless needed;
+- watch the app partition size after builds.
+
+## 8. Decisions Still Requiring Confirmation
+
+Hardware:
+
+- confirm the final physical wiring for `+`, `-`, and universal buttons on each
+  built device;
+- confirm whether any temporary `GPIO0/GPIO38` references remain in code;
+- document where button wires are routed in the current physical unit.
+
+UI:
+
+- confirm display language for firmware labels: English (`ROWS`, `PAUSE`) or
+  another target language;
+- decide whether the no-active-session screen shows last-session summary or
+  only a start hint;
+- decide whether low-battery warning is overlayed on all screens or shown as a
+  status.
+
+Storage:
+
+- confirm that `20` sessions are enough without real calendar dates if RTC is
+  not configured;
+- decide whether history clearing is post-MVP.
+
+## 9. Plan Readiness Criteria
+
+Implementation can proceed after confirming:
+
+- GPIOs for the three user buttons;
+- UI language;
+- no-active-session screen behavior;
+- statistics screen format;
+- time model: uptime seconds only or RTC-based timestamps.
+
+If those decisions are not confirmed, implementation can still start with safe
+stages:
+
+- Stage 0;
+- Stage 1;
+- Stage 2;
+- partial Stage 4 with C-level state logic independent of final GPIO.

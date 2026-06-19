@@ -1,6 +1,6 @@
 ---
 name: product-spec
-description: Используй при подготовке или уточнении требований к устройству для вязания: кнопки, ряды, экран, батарея, ограничения платы и критерии приемки.
+description: Use when preparing or refining requirements for the knitting device: buttons, rows, screen, battery, board constraints, and acceptance criteria.
 license: MIT
 compatibility: opencode
 metadata:
@@ -8,29 +8,30 @@ metadata:
   purpose: requirements
 ---
 
-## Что делать
+## What to Do
 
-Подготовить техническое задание до начала реализации.
+Prepare a technical product specification before implementation starts.
 
-## Обязательный результат
+## Required Output
 
-Включи разделы:
+Include sections for:
 
-- цель продукта;
-- целевые пользователи;
-- границы MVP;
-- что не входит в объем работ;
-- пользовательские сценарии (в процессе вязания);
-- функциональные требования;
-- нефункциональные требования;
-- критерии приемки;
-- открытые вопросы;
-- риски и допущения.
+- product goal;
+- target users;
+- MVP scope;
+- out-of-scope items;
+- user scenarios during knitting;
+- functional requirements;
+- non-functional requirements;
+- acceptance criteria;
+- open questions;
+- risks and assumptions.
 
-## Правила
+## Rules
 
-- Не создавай код приложения при использовании этого skill.
-- Задавай уточняющие вопросы, если цель продукта или границы MVP неясны.
-- Делай требования проверяемыми и конкретными.
-- Явно помечай допущения.
-- Используй термин "ряды" и не заменяй его на "уровни" без явного запроса пользователя.
+- Do not create application code when using this skill.
+- Ask clarifying questions if the product goal or MVP scope is unclear.
+- Make requirements concrete and verifiable.
+- Mark assumptions explicitly.
+- Use the term `rows`; do not replace it with `levels` unless the user
+  explicitly asks for that terminology.

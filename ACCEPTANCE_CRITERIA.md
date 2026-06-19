@@ -1,346 +1,430 @@
-# ACCEPTANCE_CRITERIA: Вязальный ассистент
-
-## 1. Definition of Done для MVP
-
-MVP считается готовым, когда выполнены все условия:
-
-- прошивка собирается через ESP-IDF командой `idf.py build` после активации PowerShell профиля ESP-IDF;
-- прошивка успешно заливается на плату `Waveshare ESP32-S3-LCD-1.69` командой `idf.py -p COM14 build flash`, если не указан другой порт;
-- версия прошивки имеет формат `0.0.1-dev.N`, отображается внизу экрана и видна в ESP-IDF `Application information`;
-- после включения устройство показывает экран без активной сессии и не начинает новую сессию автоматически;
-- пользователь может начать одну новую сессию коротким нажатием универсальной кнопки;
-- в активной сессии кнопка `+` увеличивает количество рядов на `1`;
-- в активной сессии кнопка `-` уменьшает количество рядов на `1`, но значение не становится ниже `0`;
-- изменение рядов отображается на экране не позднее чем через `200 мс` после корректного нажатия;
-- пауза останавливает чистый таймер сессии, а повторное короткое нажатие универсальной кнопки продолжает сессию;
-- на паузе кнопки `+` и `-` не меняют количество рядов;
-- длинное нажатие универсальной кнопки `1.5 сек` завершает активную или paused-сессию и сохраняет ее в историю;
-- сброс рядов требует последовательность `3` коротких нажатия универсальной кнопки и `1` длинное нажатие в течение `2 сек`, затем подтверждение одним коротким нажатием за `5 сек`;
-- неподтвержденный сброс отменяется через `5 сек` без изменения количества рядов;
-- статистика открывается одновременным зажатием кнопки `-` и универсальной кнопки;
-- история хранит последние `20` завершенных сессий локально;
-- статистика показывает последнюю сессию, суммарные ряды и суммарное чистое время;
-- при штатном выключении активная или paused-сессия закрывается и сохраняется до отключения питания;
-- после повторного включения закрытая сессия не продолжается автоматически;
-- батарея отображается сверху справа в процентах;
-- при заряде ниже `15%` пользователь видит предупреждение о низком заряде;
-- monitor-лог позволяет проверить версию прошивки и батарею в формате `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`;
-- UI использует термин `ряды` и сохраняет крупное центральное отображение количества рядов;
-- устройство работает без BLE, Wi-Fi, телефона, облака, Arduino и PlatformIO;
-- документация описывает кнопки, экраны, сборку, прошивку и базовую диагностику.
-
-## 2. Пользовательские сценарии приемки
-
-### AC-U01. Включение устройства
-
-Предусловие:
-- плата прошита актуальной версией MVP;
-- батарея подключена или питание подано штатным способом.
-
-Шаги:
-1. Нажать штатную кнопку питания платы.
-2. Дождаться включения экрана.
-
-Ожидаемый результат:
-- устройство удерживает питание;
-- показан экран без активной сессии;
-- новая сессия не стартует автоматически;
-- сверху справа виден процент батареи;
-- внизу видна версия `0.0.1-dev.N`.
-
-### AC-U02. Начало новой сессии
-
-Предусловие:
-- устройство находится на экране без активной сессии.
-
-Шаги:
-1. Коротко нажать универсальную кнопку.
-
-Ожидаемый результат:
-- создается новая сессия;
-- количество рядов равно `0`;
-- таймер показывает `00:00:00` и начинает отсчет;
-- статус показывает активную сессию.
-
-### AC-U03. Добавление рядов
-
-Предусловие:
-- активная сессия запущена.
-
-Шаги:
-1. Нажать кнопку `+` один раз.
-2. Нажать кнопку `+` еще два раза.
-
-Ожидаемый результат:
-- после первого нажатия отображается `1` ряд;
-- после трех нажатий отображается `3` ряда;
-- каждое корректное нажатие создает ровно одно увеличение;
-- обновление экрана происходит не позднее `200 мс` после нажатия.
-
-### AC-U04. Уменьшение рядов и нижняя граница
-
-Предусловие:
-- активная сессия запущена;
-- количество рядов равно `1`.
-
-Шаги:
-1. Нажать кнопку `-` один раз.
-2. Нажать кнопку `-` еще один раз.
-
-Ожидаемый результат:
-- после первого нажатия отображается `0` рядов;
-- после второго нажатия значение остается `0`;
-- отрицательные значения не появляются.
-
-### AC-U05. Пауза и продолжение
-
-Предусловие:
-- активная сессия запущена;
-- таймер уже больше `00:00:00`.
-
-Шаги:
-1. Коротко нажать универсальную кнопку.
-2. Подождать несколько секунд.
-3. Нажать `+` и `-` во время паузы.
-4. Коротко нажать универсальную кнопку еще раз.
-
-Ожидаемый результат:
-- после первого короткого нажатия статус меняется на паузу;
-- чистый таймер не увеличивается во время паузы;
-- `+` и `-` не меняют количество рядов на паузе;
-- повторное короткое нажатие продолжает сессию;
-- после продолжения таймер снова считает активное время.
+# ACCEPTANCE_CRITERIA: KAST
 
-### AC-U06. Сброс рядов с подтверждением
-
-Предусловие:
-- активная сессия запущена;
-- количество рядов больше `0`.
-
-Шаги:
-1. Выполнить `3` коротких нажатия универсальной кнопки.
-2. Выполнить `1` длинное нажатие универсальной кнопки в течение окна `2 сек`.
-3. Дождаться экрана подтверждения сброса.
-4. Коротко нажать универсальную кнопку в течение `5 сек`.
+## 1. MVP Definition of Done
 
-Ожидаемый результат:
-- устройство показывает запрос подтверждения сброса;
-- после подтверждения количество рядов становится `0`;
-- сессия остается текущей, если отдельное завершение не выполнялось.
-
-### AC-U07. Отмена сброса по таймауту
+The MVP is complete when all conditions below are met:
 
-Предусловие:
-- активная сессия запущена;
-- количество рядов больше `0`;
-- открыт экран подтверждения сброса.
+- firmware builds with ESP-IDF using `idf.py build` after activating the
+  ESP-IDF PowerShell profile;
+- firmware flashes successfully to `Waveshare ESP32-S3-LCD-1.69` with
+  `idf.py -p COM14 build flash`, unless another port is specified;
+- firmware version uses `0.0.1-dev.N`, is visible at the bottom of the screen,
+  and appears in ESP-IDF `Application information`;
+- after power-on, the device shows a no-active-session state and does not start
+  a session automatically;
+- the user can start one new session with a short universal-button press;
+- in an active session, `+` increases row count by `1`;
+- in an active session, `-` decreases row count by `1`, but not below `0`;
+- row changes are visible on screen no later than `200 ms` after a valid press;
+- pause stops the clean session timer, and another short universal-button press
+  resumes the session;
+- while paused, `+` and `-` do not change row count;
+- a `1.5 s` long universal-button press finishes an active or paused session
+  and saves it to history;
+- row reset requires `3` short universal-button presses and `1` long press
+  within `2 s`, then confirmation with one short press within `5 s`;
+- unconfirmed reset is canceled after `5 s` without changing row count;
+- statistics open by holding `-` and universal together;
+- history stores the latest `20` completed sessions locally;
+- statistics show last session, total rows, and total clean time;
+- normal shutdown closes and saves an active or paused session before power is
+  dropped;
+- after power-on, a closed session does not resume automatically;
+- battery is shown as a percentage in the top-right area;
+- when charge is below `15%`, the user sees a low-battery warning;
+- monitor logs allow checking firmware version and battery diagnostics in the
+  format `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`;
+- UI uses the term `rows` and keeps the row count as the dominant central
+  element;
+- the device works without BLE, Wi-Fi, phone, cloud, Arduino, or PlatformIO;
+- documentation describes buttons, screens, build, flashing, and basic
+  diagnostics.
 
-Шаги:
-1. Не нажимать универсальную кнопку `5 сек`.
+## 2. User Acceptance Scenarios
 
-Ожидаемый результат:
-- подтверждение сброса закрывается;
-- количество рядов остается прежним;
-- устройство возвращается к предыдущему экрану сессии.
+### AC-U01. Power On
 
-### AC-U08. Завершение сессии
+Preconditions:
 
-Предусловие:
-- активная или paused-сессия запущена;
-- количество рядов больше `0`.
+- board is flashed with the current MVP firmware;
+- battery is connected or power is supplied normally.
 
-Шаги:
-1. Выполнить одно длинное нажатие универсальной кнопки `1.5 сек`.
+Steps:
 
-Ожидаемый результат:
-- сессия завершается сразу;
-- сессия сохраняется в историю;
-- сохраняются итоговые ряды и чистая длительность;
-- экран возвращается в состояние без активной сессии или показывает короткий статус сохранения.
+1. Press the board power button.
+2. Wait for the screen to turn on.
 
-### AC-U09. Просмотр статистики
+Expected result:
 
-Предусловие:
-- в истории есть хотя бы одна завершенная сессия.
+- the device holds power;
+- the no-active-session screen is shown;
+- a new session does not start automatically;
+- battery percentage is visible in the top-right area;
+- firmware version `0.0.1-dev.N` is visible at the bottom.
 
-Шаги:
-1. Одновременно зажать кнопку `-` и универсальную кнопку.
+### AC-U02. Start New Session
 
-Ожидаемый результат:
-- открывается экран статистики;
-- видны данные последней сессии;
-- видны суммарные ряды;
-- видно суммарное чистое время;
-- пользователь может вернуться к основному экрану без подключения к внешним устройствам.
+Precondition:
 
-### AC-U10. Штатное выключение с сохранением
+- the device is on the no-active-session screen.
 
-Предусловие:
-- активная или paused-сессия запущена;
-- количество рядов больше `0`.
+Steps:
 
-Шаги:
-1. Выключить устройство штатной кнопкой питания платы.
-2. Снова включить устройство.
-3. Открыть статистику.
+1. Short-press the universal button.
 
-Ожидаемый результат:
-- перед отключением текущая сессия закрывается с причиной `power_off`;
-- после повторного включения сессия не продолжается автоматически;
-- закрытая сессия доступна в истории или статистике.
+Expected result:
 
-### AC-U11. Батарея и низкий заряд
+- a new session is created;
+- row count is `0`;
+- timer shows `00:00:00` and starts counting;
+- status shows active session.
 
-Предусловие:
-- устройство включено;
-- ADC батареи подключен к `GPIO1`, используется `ADC_CHANNEL_0` и коэффициент делителя `3`.
+### AC-U03. Add Rows
 
-Шаги:
-1. Проверить процент батареи на экране.
-2. Проверить monitor-лог батареи.
-3. Проверить состояние ниже порога `15%` реальной батареей, временным тестовым порогом или mock-режимом.
+Precondition:
 
-Ожидаемый результат:
-- батарея отображается сверху справа в процентах;
-- monitor содержит `raw`, `adc_mv`, `bat_mv`, `pct`;
-- при `pct < 15` на экране появляется предупреждение о низком заряде.
+- active session is running.
 
-## 3. Software Критерии
+Steps:
 
-### AC-S01. Сборка
+1. Press `+` once.
+2. Press `+` two more times.
 
-Команда проверки:
-- `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`
-- `idf.py build`
+Expected result:
 
-Ожидаемый результат:
-- сборка завершается без ошибок;
-- target остается `esp32s3`;
-- сборка не требует Arduino или PlatformIO.
+- after the first press, `1` row is displayed;
+- after three presses, `3` rows are displayed;
+- each valid press creates exactly one increment;
+- screen updates within `200 ms` after the press.
 
-### AC-S02. Прошивка
+### AC-U04. Remove Rows and Lower Bound
 
-Команда проверки:
-- перед прошивкой увеличить `PROJECT_VER` на следующий `0.0.1-dev.N`;
-- `idf.py -p COM14 build flash`.
+Preconditions:
 
-Ожидаемый результат:
-- прошивка завершается успешно;
-- на экране отображается новая версия;
-- в monitor виден тот же `App version`.
+- active session is running;
+- row count is `1`.
 
-### AC-S03. Логи диагностики
+Steps:
 
-Команда проверки:
-- `idf.py -p COM14 monitor`.
+1. Press `-` once.
+2. Press `-` again.
 
-Ожидаемый результат:
-- monitor показывает старт приложения;
-- monitor показывает версию прошивки;
-- monitor показывает диагностику батареи;
-- при отладке кнопок monitor позволяет видеть события `PLUS_SHORT`, `MINUS_SHORT`, `UNIVERSAL_SHORT`, `UNIVERSAL_LONG`, `RESET_REQUEST`, `STATS_OPEN`, `POWER_LONG` или эквивалентные сообщения.
+Expected result:
 
-### AC-S04. Кнопки и debounce
+- after the first press, `0` rows are displayed;
+- after the second press, the value remains `0`;
+- negative values never appear.
 
-Ожидаемый результат:
-- одно физическое короткое нажатие создает одно пользовательское событие;
-- длинное нажатие определяется после `1.5 сек`;
-- дребезг не увеличивает и не уменьшает ряды несколько раз;
-- одиночное длинное нажатие не считается reset sequence без трех коротких нажатий перед ним.
+### AC-U05. Pause and Resume
 
-### AC-S05. Хранение истории
+Preconditions:
 
-Ожидаемый результат:
-- запись истории выполняется при завершении или штатном выключении сессии;
-- запись не выполняется на каждый ряд;
-- история ограничена последними `20` завершенными сессиями;
-- ошибка чтения истории не ломает запуск устройства: история считается пустой, а ошибка логируется.
+- active session is running;
+- timer is greater than `00:00:00`.
 
-### AC-S06. UI и читаемость
+Steps:
 
-Ожидаемый результат:
-- количество рядов является самым заметным элементом экрана;
-- батарея находится сверху справа;
-- версия находится внизу;
-- таймер отображается в формате `чч:мм:сс`;
-- статусы `нет сессии`, `активна`, `пауза`, `подтверждение сброса`, `низкий заряд` различимы на экране `240x280`.
+1. Short-press the universal button.
+2. Wait a few seconds.
+3. Press `+` and `-` while paused.
+4. Short-press the universal button again.
 
-## 4. Критерии ошибок и пустых состояний
+Expected result:
 
-### AC-E01. Нет активной сессии
+- status changes to paused after the first press;
+- clean timer does not increase while paused;
+- `+` and `-` do not change row count while paused;
+- second short press resumes the session;
+- timer counts active time again after resume.
 
-Ожидаемый результат:
-- экран явно показывает, что активной сессии нет;
-- кнопка `+` не меняет ряды;
-- кнопка `-` не меняет ряды, кроме участия в комбинации статистики;
-- короткое нажатие универсальной кнопки начинает новую сессию.
+### AC-U06. Reset Rows With Confirmation
 
-### AC-E02. Ряды равны нулю
+Preconditions:
 
-Ожидаемый результат:
-- нажатие `-` оставляет значение `0`;
-- отрицательные значения не появляются в UI, логах и модели сессии.
+- active session is running;
+- row count is greater than `0`.
 
-### AC-E03. Пустая история
+Steps:
 
-Ожидаемый результат:
-- экран статистики не падает и не показывает мусорные данные;
-- пользователь видит понятное пустое состояние, например отсутствие завершенных сессий;
-- суммарные значения равны `0`.
+1. Perform `3` short universal-button presses.
+2. Perform `1` long universal-button press within the `2 s` window.
+3. Wait for the reset confirmation screen.
+4. Short-press the universal button within `5 s`.
 
-### AC-E04. Переполнение истории
+Expected result:
 
-Ожидаемый результат:
-- после создания более `20` завершенных сессий сохраняются последние `20`;
-- статистика остается корректной;
-- устройство не зависает и не повреждает NVS из-за роста истории.
+- the device shows reset confirmation;
+- after confirmation, row count becomes `0`;
+- the session remains current unless it is separately finished.
 
-### AC-E05. Неподтвержденный сброс
+### AC-U07. Cancel Reset by Timeout
 
-Ожидаемый результат:
-- если подтверждение не выполнено за `5 сек`, ряды не сбрасываются;
-- устройство возвращается к предыдущему состоянию сессии.
+Preconditions:
 
-### AC-E06. Ошибка батареи или некорректное чтение ADC
+- active session is running;
+- row count is greater than `0`;
+- reset confirmation screen is open.
 
-Ожидаемый результат:
-- приложение продолжает работать;
-- monitor содержит диагностическое сообщение;
-- UI не показывает невалидные отрицательные проценты или значения выше допустимого диапазона без ограничения;
-- счет рядов и управление сессией остаются доступными.
+Steps:
 
-### AC-E07. Ошибка чтения NVS
+1. Do not press the universal button for `5 s`.
 
-Ожидаемый результат:
-- устройство запускается с пустой историей;
-- ошибка логируется;
-- новая завершенная сессия может быть сохранена, если запись NVS доступна.
+Expected result:
 
-### AC-E08. Быстрые или случайные нажатия
+- reset confirmation closes;
+- row count remains unchanged;
+- the device returns to the previous session screen.
 
-Ожидаемый результат:
-- случайное одиночное нажатие универсальной кнопки не сбрасывает ряды;
-- случайное одиночное длинное нажатие завершает сессию по правилам MVP и сохраняет ее в историю;
-- reset требует полную последовательность и подтверждение.
+### AC-U08. Finish Session
 
-## 5. Минимальные проверки перед финальным ответом агента
+Preconditions:
 
-Для задач с изменением прошивки агент должен выполнить или явно указать причину невыполнения:
+- active or paused session is running;
+- row count is greater than `0`.
 
-1. Проверить измененные файлы и убедиться, что не затронуты несвязанные изменения пользователя.
-2. Активировать ESP-IDF PowerShell профиль командой `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
-3. Запустить `idf.py build`.
-4. Если пользователь просил прошить плату, перед прошивкой увеличить `PROJECT_VER` на следующий `0.0.1-dev.N`.
-5. Если пользователь просил прошить плату, выполнить `idf.py -p COM14 build flash`, если не указан другой порт.
-6. Если нужна проверка на устройстве, выполнить `idf.py -p COM14 monitor` и выйти через `Ctrl+]`.
-7. Проверить, что на экране видна ожидаемая версия прошивки.
-8. Проверить основной smoke-сценарий: старт сессии, `+`, `-`, пауза, продолжение, сброс с подтверждением, завершение, статистика.
-9. Проверить батарею на экране и monitor-лог `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`.
-10. Явно перечислить в финальном ответе, какие проверки выполнены, какие не выполнены и почему.
+Steps:
 
-Для задач только с документацией достаточно:
+1. Perform one `1.5 s` long universal-button press.
 
-1. Проверить созданные или измененные документы.
-2. Убедиться, что терминология использует `ряды`.
-3. Не запускать сборку и не прошивать плату, если код прошивки не менялся и пользователь этого не просил.
-4. Указать в финальном ответе, что аппаратные проверки не запускались, потому что изменялась только документация.
+Expected result:
+
+- session finishes immediately;
+- session is saved to history;
+- final rows and clean duration are saved;
+- screen returns to no-active-session state or shows a short saved status.
+
+### AC-U09. View Statistics
+
+Precondition:
+
+- history contains at least one completed session.
+
+Steps:
+
+1. Hold `-` and universal together.
+
+Expected result:
+
+- statistics screen opens;
+- last-session data is visible;
+- total rows are visible;
+- total clean time is visible;
+- the user can return to the main screen without external devices.
+
+### AC-U10. Normal Shutdown With Save
+
+Preconditions:
+
+- active or paused session is running;
+- row count is greater than `0`.
+
+Steps:
+
+1. Turn off the device with the board power button.
+2. Turn the device on again.
+3. Open statistics.
+
+Expected result:
+
+- before power-off, the current session is closed with reason `power_off`;
+- after power-on, the session does not resume automatically;
+- the closed session is available in history or statistics.
+
+### AC-U11. Battery and Low Charge
+
+Preconditions:
+
+- device is powered on;
+- battery ADC is connected to `GPIO1`, using `ADC_CHANNEL_0` and divider
+  multiplier `3`.
+
+Steps:
+
+1. Check battery percentage on screen.
+2. Check battery monitor log.
+3. Check `pct < 15` with a real low battery, temporary threshold, or mock mode.
+
+Expected result:
+
+- battery is shown as a percentage in the top-right area;
+- monitor contains `raw`, `adc_mv`, `bat_mv`, and `pct`;
+- when `pct < 15`, the screen shows a low-battery warning.
+
+## 3. Software Criteria
+
+### AC-S01. Build
+
+Check commands:
+
+```powershell
+. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"
+idf.py build
+```
+
+Expected result:
+
+- build completes without errors;
+- target remains `esp32s3`;
+- build does not require Arduino or PlatformIO.
+
+### AC-S02. Flash
+
+Check commands:
+
+```powershell
+idf.py -p COM14 build flash
+```
+
+Before flashing, increment `PROJECT_VER` to the next `0.0.1-dev.N`.
+
+Expected result:
+
+- flashing succeeds;
+- new version is visible on the screen;
+- the same `App version` is visible in monitor.
+
+### AC-S03. Diagnostic Logs
+
+Check command:
+
+```powershell
+idf.py -p COM14 monitor
+```
+
+Expected result:
+
+- monitor shows application start;
+- monitor shows firmware version;
+- monitor shows battery diagnostics;
+- during button debugging, monitor can show events such as `PLUS_SHORT`,
+  `MINUS_SHORT`, `UNIVERSAL_SHORT`, `UNIVERSAL_LONG`, `RESET_REQUEST`,
+  `STATS_OPEN`, `POWER_LONG`, or equivalent messages.
+
+### AC-S04. Buttons and Debounce
+
+Expected result:
+
+- one physical short press creates one user event;
+- long press is detected after `1.5 s`;
+- bounce does not increment or decrement rows multiple times;
+- one long press alone does not count as reset sequence without the preceding
+  three short presses.
+
+### AC-S05. History Storage
+
+Expected result:
+
+- history is written on session finish or normal shutdown;
+- history is not written on every row;
+- history is limited to the latest `20` completed sessions;
+- history read errors do not break startup: history is treated as empty and the
+  error is logged.
+
+### AC-S06. UI and Readability
+
+Expected result:
+
+- row count is the most prominent screen element;
+- battery is top-right;
+- firmware version is at the bottom;
+- timer uses `hh:mm:ss`;
+- statuses for no session, active, paused, reset confirmation, and low battery
+  are distinguishable on the `240x280` screen.
+
+## 4. Error and Empty-State Criteria
+
+### AC-E01. No Active Session
+
+Expected result:
+
+- screen clearly shows that there is no active session;
+- `+` does not change rows;
+- `-` does not change rows except as part of the statistics combination;
+- short universal-button press starts a new session.
+
+### AC-E02. Rows Are Zero
+
+Expected result:
+
+- pressing `-` keeps the value at `0`;
+- negative values never appear in UI, logs, or session model.
+
+### AC-E03. Empty History
+
+Expected result:
+
+- statistics screen does not crash and does not show garbage data;
+- the user sees a clear empty state;
+- aggregate values are `0`.
+
+### AC-E04. History Overflow
+
+Expected result:
+
+- after more than `20` completed sessions, the latest `20` are retained;
+- statistics remain correct;
+- device does not hang or corrupt NVS because history grows.
+
+### AC-E05. Unconfirmed Reset
+
+Expected result:
+
+- if confirmation is not completed within `5 s`, rows are not reset;
+- the device returns to the previous session state.
+
+### AC-E06. Battery Error or Invalid ADC Reading
+
+Expected result:
+
+- application keeps running;
+- monitor contains a diagnostic message;
+- UI does not show invalid negative percentages or values above the allowed
+  range without clamping;
+- row counting and session control remain available.
+
+### AC-E07. NVS Read Error
+
+Expected result:
+
+- device starts with empty history;
+- error is logged;
+- a new completed session can be saved if NVS writes are available.
+
+### AC-E08. Fast or Accidental Presses
+
+Expected result:
+
+- accidental single universal-button press does not reset rows;
+- accidental single long press finishes the session according to MVP rules and
+  saves it to history;
+- reset requires the full sequence plus confirmation.
+
+## 5. Minimum Checks Before Final Agent Response
+
+For firmware changes, the agent must perform or explicitly state why it did not
+perform:
+
+1. Review changed files and ensure unrelated user changes were not overwritten.
+2. Activate the ESP-IDF PowerShell profile:
+   `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
+3. Run `idf.py build`.
+4. If the user requested flashing, increment `PROJECT_VER` to the next
+   `0.0.1-dev.N`.
+5. If the user requested flashing, run `idf.py -p COM14 build flash`, unless
+   another port is specified.
+6. If device verification is needed, run `idf.py -p COM14 monitor` and exit with
+   `Ctrl+]`.
+7. Verify that the expected firmware version is visible on screen.
+8. Verify the main smoke scenario: start session, `+`, `-`, pause, resume, reset
+   with confirmation, finish, statistics.
+9. Verify battery on screen and monitor log:
+   `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`.
+10. In the final answer, list which checks were performed and which were not.
+
+For documentation-only tasks:
+
+1. Review created or changed documents.
+2. Ensure terminology uses `rows`.
+3. Do not build or flash unless firmware code changed or the user requested it.
+4. State in the final answer that hardware checks were not run because only
+   documentation changed.

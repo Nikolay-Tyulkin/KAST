@@ -1,6 +1,6 @@
 ---
 name: quality-gate
-description: Используй перед завершением задачи, чтобы проверить измененные файлы, запустить релевантные проверки, описать непроверенные области и оставшиеся риски.
+description: Use before finishing a task to review changed files, run relevant checks, describe unchecked areas, and list remaining risks.
 license: MIT
 compatibility: opencode
 metadata:
@@ -8,26 +8,27 @@ metadata:
   purpose: verification
 ---
 
-## Что делать
+## What to Do
 
-Проверить, что текущая задача завершена, перед финальным ответом.
+Verify that the current task is complete before the final response.
 
-## Чеклист
+## Checklist
 
-- Просмотреть измененные файлы.
-- Подтвердить, что изменения соответствуют задаче.
-- Запустить релевантные тесты, сборку, lint, typecheck или smoke-проверки, если они доступны.
-- Проверить, что документация обновлена, если поведение изменилось.
-- Убедиться, что секреты не добавлены.
-- Отметить все, что не удалось проверить.
-- Для этого проекта отдельно проверить логику рядов, сценарий сброса и отображение батареи.
+- Review changed files.
+- Confirm that changes match the task.
+- Run relevant tests, build, lint, typecheck, or smoke checks when available.
+- Update documentation if behavior changed.
+- Confirm that secrets were not added.
+- Note everything that could not be checked.
+- For this project, specifically check row logic, reset behavior, and battery
+  display when firmware changed.
 
-## Формат финального ответа
+## Final Response Format
 
-Сообщи:
+Report:
 
-- что изменено;
-- какие файлы затронуты;
-- какие проверки запущены;
-- какие проверки не запущены и почему;
-- оставшиеся риски или follow-up задачи.
+- what changed;
+- which files were touched;
+- which checks were run;
+- which checks were not run and why;
+- remaining risks or follow-up tasks.

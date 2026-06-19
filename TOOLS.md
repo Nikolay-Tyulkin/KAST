@@ -1,42 +1,62 @@
 # TOOLS
 
-Короткая памятка по инструментам для этого репозитория.
+Short tool reference for this repository.
 
-## Что использовать по умолчанию
-- Для чтения и правки файлов: встроенные инструменты opencode (`read/edit/apply_patch`).
-- Для команд: `bash` (PowerShell), но только если в репозитории реально есть команды для запуска.
-- Для поиска: `glob` и `grep` перед любыми предположениями о структуре.
+## Default Tools
 
-## Ограничения текущего проекта
-- Проект содержит ESP-IDF прошивку для `esp32s3`; использовать ESP-IDF CLI, не Arduino и не PlatformIO.
-- Подтвержденная проверка: `idf.py build`.
-- Отдельных тестов/линта сейчас нет; не выдумывать команды без появления соответствующих конфигов.
+- For reading and editing files: built-in Codex/opencode file tools
+  (`read`, `edit`, `apply_patch`).
+- For commands: PowerShell. Run only commands that are actually supported by the
+  repository.
+- For searching: use `rg` before making assumptions about file structure.
 
-## Подтвержденный toolchain (локальная среда)
-- Рабочая среда: `IDF PowerShell Environment`.
+## Current Project Constraints
+
+- The project contains ESP-IDF firmware for `esp32s3`; use ESP-IDF CLI, not
+  Arduino or PlatformIO.
+- Confirmed check: `idf.py build`.
+- There are no separate tests or linters currently; do not invent commands
+  until matching configs exist.
+
+## Confirmed Toolchain
+
+- Working environment: `IDF PowerShell Environment`.
 - `IDF_PATH`: `C:\esp\v6.0.1\esp-idf`
 - `IDF_TOOLS_PATH`: `C:\Espressif\tools`
 - `IDF_PYTHON_ENV_PATH`: `C:\Espressif\tools\python\v6.0.1\venv`
-- Версия: `ESP-IDF v6.0.1`.
+- ESP-IDF version: `v6.0.1`.
 
-## Команды для прошивки
-- Основная команда: `idf.py` (пример: `idf.py build`).
-- Дополнительные утилиты: `esptool.py`, `espefuse.py`, `espsecure.py`, `otatool.py`, `parttool.py`.
-- Перед запуском команд в PowerShell 5.1 активировать профиль ESP-IDF через dot-sourcing:
+## Firmware Commands
+
+- Main command: `idf.py`, for example `idf.py build`.
+- Additional utilities: `esptool.py`, `espefuse.py`, `espsecure.py`,
+  `otatool.py`, `parttool.py`.
+- Before running commands in PowerShell 5.1, activate the ESP-IDF profile through
+  dot-sourcing:
   `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`
-- Не использовать `source ...` в PowerShell 5.1: команда не найдена и профиль не активируется.
-- Перед прошивкой увеличить dev-счетчик `PROJECT_VER` в корневом `CMakeLists.txt` на 1 в формате `0.0.1-dev.N`, чтобы новая прошивка была видна внизу экрана и в ESP-IDF `Application information`.
-- Сборка: `idf.py build`.
-- Прошивка платы на текущем рабочем порту: `idf.py -p COM14 build flash`.
-- Монитор логов: `idf.py -p COM14 monitor`; выход из монитора `Ctrl+]`.
-- Если профиль не активирован, не запускать команды прошивки "вслепую", а явно фиксировать это в ответе.
+- Do not use `source ...` in PowerShell 5.1. The command is not found and the
+  profile is not activated.
+- Before flashing, increment the `PROJECT_VER` dev counter in the root
+  `CMakeLists.txt` by `1` in `0.0.1-dev.N` format so the new firmware is visible
+  at the bottom of the screen and in ESP-IDF `Application information`.
+- Build: `idf.py build`.
+- Flash current board: `idf.py -p COM14 build flash`.
+- Log monitor: `idf.py -p COM14 monitor`; exit with `Ctrl+]`.
+- If the profile is not activated, do not run firmware commands blindly. Report
+  that prerequisite clearly.
 
-## Железо и предметная область
-- Целевое устройство: `Waveshare ESP32-S3-LCD-1.69` + батарея + 3 кнопки.
-- В тексте, UI и логике использовать термин "ряды".
-- Батарея: схема Waveshare подключает `BAT_ADC` к `GPIO1`; в ESP-IDF ESP32-S3 использовать `ADC_CHANNEL_0`, коэффициент делителя `3` (`200k/100k`).
-- Приоритет проверки: видимая версия прошивки внизу экрана, корректный счет рядов, корректный сброс, корректное отображение процента батареи.
+## Hardware and Domain Notes
 
-## Когда обновлять этот файл
-- Сразу после изменения версии ESP-IDF или пути к инструментам.
-- Добавлять только проверяемые команды и ограничения, которые уже можно подтвердить файлами репозитория.
+- Target device: `Waveshare ESP32-S3-LCD-1.69` + battery + 3 buttons.
+- Use the term `rows` in text, UI, and logic.
+- Battery: Waveshare connects `BAT_ADC` to `GPIO1`; in ESP-IDF on ESP32-S3 use
+  `ADC_CHANNEL_0`, voltage-divider multiplier `3` (`200k/100k`).
+- Verification priorities: visible firmware version at the bottom of the
+  screen, correct row counting, correct reset behavior, and correct battery
+  percentage display.
+
+## When to Update This File
+
+- Immediately after changing the ESP-IDF version or tool paths.
+- Add only verified commands and constraints that can already be confirmed from
+  repository files or the local environment.

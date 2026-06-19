@@ -1,6 +1,6 @@
 ---
 name: implementation-plan
-description: Используй для перевода согласованных требований устройства в поэтапный план embedded-реализации с зависимостями, рисками и шагами проверки.
+description: Use to convert agreed device requirements into an incremental embedded implementation plan with dependencies, risks, and verification steps.
 license: MIT
 compatibility: opencode
 metadata:
@@ -8,24 +8,27 @@ metadata:
   purpose: planning
 ---
 
-## Что делать
+## What to Do
 
-Преобразовать согласованные требования в план реализации до начала изменений в коде.
+Convert agreed requirements into an implementation plan before code changes
+begin.
 
-## Обязательный результат
+## Required Output
 
-Включи разделы:
+Include sections for:
 
-- этапы реализации;
-- файлы или модули, которые предположительно изменятся;
-- зависимости между задачами;
-- шаги проверки для каждого этапа;
-- риски и запасные варианты;
-- решения, которые еще требуют подтверждения пользователя.
+- implementation stages;
+- files or modules likely to change;
+- dependencies between tasks;
+- verification steps for each stage;
+- risks and fallback options;
+- decisions that still require user confirmation.
 
-## Правила
+## Rules
 
-- Не создавай код приложения во время планирования, если пользователь явно не попросил перейти к реализации.
-- Делай план инкрементальным.
-- Предпочитай минимальную корректную архитектуру.
-- Отмечай задачи по модулям: кнопки, счет рядов, экран, батарея, хранение состояния, тесты.
+- Do not create application code during planning unless the user explicitly asks
+  to move into implementation.
+- Make the plan incremental.
+- Prefer the smallest correct architecture.
+- Track work by modules: buttons, row count, screen, battery, state storage, and
+  tests.

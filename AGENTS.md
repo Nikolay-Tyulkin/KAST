@@ -1,33 +1,63 @@
 # AGENTS
 
-## Цель проекта (подтверждено пользователем)
-- Устройство: ассистент для вязания на базе платы `Waveshare ESP32-S3-LCD-1.69`.
-- Управление: 3 кнопки — добавить ряд, убрать ряд, сброс/доп. функции по типу нажатия.
-- Интерфейс: на экране отображаются количество рядов и заряд батареи в процентах.
+## Project Goal
 
-## Текущее состояние репозитория
-- Проект содержит ESP-IDF MVP-прошивку в `main/main.c`: сессия, счет рядов, пауза, завершение, подтверждение сброса, статистика и история NVS.
-- Целевой стек: ESP-IDF CLI, target `esp32s3`; не использовать Arduino и PlatformIO без явного решения пользователя.
-- Основная локальная проверка: активировать ESP-IDF PowerShell профиль и выполнить `idf.py build`.
-- Основная прошивка платы: `idf.py -p COM14 build flash`.
-- Для проверки логов устройства использовать `idf.py -p COM14 monitor`; выход из монитора `Ctrl+]`.
-- Текущая версия прошивки задается в корневом `CMakeLists.txt` через `PROJECT_VER` в формате SemVer dev, например `0.0.1-dev.2`; она прокидывается в код как `APP_VERSION`, отображается внизу экрана и попадает в ESP-IDF `Application information`.
-- Батарея на плате Waveshare измеряется на `GPIO1`, но в ESP-IDF для ESP32-S3 это `ADC_CHANNEL_0`, не `ADC_CHANNEL_1`; делитель по схеме `R3=200k` и `R7=100k`, коэффициент пересчета `3`.
-- Подтвержденные внешние кнопки на доступном разъеме: `+ = GPIO2`, `- = GPIO16`, универсальная = `GPIO17`; каждая кнопка подключается между GPIO и `GND`, активный уровень `0`.
+- Product: KAST, a knitting assistant based on the
+  `Waveshare ESP32-S3-LCD-1.69` board.
+- Controls: 3 buttons: add row, remove row, and a universal reset/secondary
+  function button based on press type.
+- Interface: the screen shows the row count and battery charge as a percentage.
 
-## Как работать с прошивкой
-- Перед командами ESP-IDF в PowerShell 5.1 активировать профиль через dot-sourcing: `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
-- Не использовать `source ...` в PowerShell 5.1: эта команда не активирует профиль в текущей среде.
-- Если пользователь просит прошить текущую плату, использовать порт `COM14`, если пользователь не указал другой порт.
-- Перед каждой прошивкой, которую выполняет ассистент, увеличить dev-счетчик в `PROJECT_VER` на 1 (`0.0.1-dev.N`) и прошивать уже эту версию; после прошивки пользователь должен видеть ее внизу экрана.
-- Если пользователь просит "запустить тесты/линт", сначала проверить наличие соответствующих конфигов; сейчас подтверждена только сборка `idf.py build`.
-- Не подменяй терминологию: в UI/логике использовать "ряды" (не "уровни"), если пользователь явно не попросит иначе.
-- Сброс рядов по спецификации: `3` коротких нажатия универсальной кнопки и затем `1` длинное нажатие в окне `2 сек`, после чего подтверждение коротким нажатием за `5 сек`.
-- При проектировании UI держать фокус на читаемости с экрана устройства: крупные цифры рядов и заметный процент батареи.
-- При появлении новых инструментов обнови этот файл сразу: здесь должны быть только проверяемые, repo-specific инструкции.
+## Current Repository State
 
-## Что проверять после изменений
-- Сборка: `idf.py build` после активации ESP-IDF профиля.
-- Прошивка по запросу: `idf.py -p COM14 build flash`.
-- Smoke-проверка на устройстве: экран включается, внизу видна ожидаемая версия `0.0.1-dev.N`, счетчик рядов меняется кнопками `+/-`, батарея отображается в процентах.
-- Для диагностики батареи смотреть monitor-лог `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`.
+- The project contains an ESP-IDF MVP firmware in `main/main.c`: session state,
+  row count, pause, finish, reset confirmation, statistics, and NVS history.
+- Target stack: ESP-IDF CLI, target `esp32s3`; do not use Arduino or PlatformIO
+  unless the user explicitly decides to.
+- Main local check: activate the ESP-IDF PowerShell profile and run
+  `idf.py build`.
+- Main board flashing command: `idf.py -p COM14 build flash`.
+- Device logs: use `idf.py -p COM14 monitor`; exit the monitor with `Ctrl+]`.
+- The current firmware version is set in the root `CMakeLists.txt` through
+  `PROJECT_VER` in SemVer dev format, for example `0.0.1-dev.2`. It is passed to
+  the code as `APP_VERSION`, shown at the bottom of the screen, and included in
+  ESP-IDF `Application information`.
+- The Waveshare board battery is measured on `GPIO1`, but in ESP-IDF for
+  ESP32-S3 this is `ADC_CHANNEL_0`, not `ADC_CHANNEL_1`. The schematic divider
+  is `R3=200k` and `R7=100k`, with voltage multiplier `3`.
+- Confirmed external buttons on the available connector: `+ = GPIO2`,
+  `- = GPIO16`, universal = `GPIO17`. Each button is connected between GPIO and
+  `GND`; active level is `0`.
+
+## Firmware Workflow
+
+- Before ESP-IDF commands in PowerShell 5.1, activate the profile through
+  dot-sourcing:
+  `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
+- Do not use `source ...` in PowerShell 5.1. It does not activate the profile in
+  the current environment.
+- If the user asks to flash the current board, use port `COM14` unless another
+  port is specified.
+- Before every flash performed by the assistant, increment the dev counter in
+  `PROJECT_VER` by `1` (`0.0.1-dev.N`) and flash that version. After flashing,
+  the user should see it at the bottom of the screen.
+- If the user asks to run tests or linting, first check that matching configs
+  exist. Currently only `idf.py build` is confirmed.
+- Keep terminology consistent: use `rows` in UI and logic unless the user
+  explicitly asks otherwise.
+- Row reset specification: `3` short universal-button presses followed by
+  `1` long press within a `2 s` window, then confirmation with one short press
+  within `5 s`.
+- When designing UI, prioritize readability on the device screen: large row
+  digits and a visible battery percentage.
+- Update this file as soon as new tools are confirmed. It should contain only
+  verifiable, repository-specific instructions.
+
+## Checks After Changes
+
+- Build: `idf.py build` after activating the ESP-IDF profile.
+- Flash on request: `idf.py -p COM14 build flash`.
+- Device smoke check: screen turns on, expected `0.0.1-dev.N` is visible at the
+  bottom, `+/-` changes the row counter, and battery is shown as a percentage.
+- For battery diagnostics, inspect monitor logs:
+  `Battery ADC raw=... adc_mv=... bat_mv=... pct=...`.
