@@ -13,6 +13,7 @@ places.
 | BOM, printed parts, purchased components, and button wiring | [`../BOM.md`](../BOM.md) |
 | Enclosure assembly and component installation steps | [`../ASSEMBLY.md`](../ASSEMBLY.md) |
 | Hardware status and revision history | [`../REVISIONS.md`](../REVISIONS.md) |
+| 3D printed parts license | [`LICENSE.md`](LICENSE.md) |
 
 ## Print-Ready Files
 
@@ -61,3 +62,8 @@ slicing.
 ### Strap Mold Preparation
 
 ![Silicone strap mold placement on the build plate](images/molds_prepare.png)
+
+## License
+
+The files in this section are licensed under
+[`Creative Commons Attribution-NonCommercial 4.0 International`](LICENSE.md).

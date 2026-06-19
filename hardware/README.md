@@ -14,6 +14,7 @@ This section contains the physical-device materials for KAST: enclosure files,
 | [`BOM.md`](BOM.md) | Bill of materials for the build |
 | [`ASSEMBLY.md`](ASSEMBLY.md) | Assembly steps and smoke check |
 | [`REVISIONS.md`](REVISIONS.md) | Hardware revision log |
+| [`3d-print/LICENSE.md`](3d-print/LICENSE.md) | License for 3D printed parts and CAD files |
 
 ## Target Device
 
@@ -22,3 +23,8 @@ This section contains the physical-device materials for KAST: enclosure files,
 - Controls: 3 external buttons
 - Power: battery connected to the board
 - Main use case: row counting while knitting
+
+## License
+
+The 3D printed parts, CAD files, and physical-design assets are licensed under
+[`CC BY-NC 4.0`](3d-print/LICENSE.md).
