@@ -137,3 +137,9 @@ Battery ADC raw=... adc_mv=... bat_mv=... pct=...
   "Quick Start".
 - `source ...` does not activate the profile in the current PowerShell 5.1
   session.
+
+## License
+
+- Firmware and repository documentation: [`MIT License`](LICENSE).
+- 3D printed parts, CAD files, and physical-design assets:
+  [`CC BY-NC 4.0`](hardware/3d-print/LICENSE.md).
