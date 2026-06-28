@@ -99,6 +99,7 @@ Hardware documentation:
 | [`hardware/ASSEMBLY.md`](hardware/ASSEMBLY.md) | Assembly and smoke check |
 | [`hardware/REVISIONS.md`](hardware/REVISIONS.md) | Hardware revision log |
 | [`hardware/3d-print/README.md`](hardware/3d-print/README.md) | Enclosure, 3D printing, and model files |
+| [Thingiverse](https://www.thingiverse.com/thing:7372245) | 3D-printable enclosure on Thingiverse |
 
 ## Project Structure
 
