@@ -19,6 +19,10 @@ The repository currently contains an ESP-IDF MVP firmware:
 
 The project is built with ESP-IDF CLI. Arduino and PlatformIO are not used.
 
+## Video Demonstration
+
+[![KAST Demonstration](https://img.youtube.com/vi/uReX32vW19Y/0.jpg)](https://www.youtube.com/watch?v=uReX32vW19Y)
+
 ## Quick Start
 
 Open PowerShell 5.1 in the project root and activate the ESP-IDF profile:
