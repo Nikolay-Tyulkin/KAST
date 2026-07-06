@@ -16,6 +16,9 @@ from this file.
 - `quality-gate` (`.opencode/skills/quality-gate/SKILL.md`) - use before a
   final answer for implementation tasks: what was checked, what was not checked,
   and what risks remain.
+- `feature-artifacts` (`.opencode/skills/feature-artifacts/SKILL.md`) - use when
+  preparing product feature artifacts before implementation: feature spec,
+  implementation plan, and acceptance criteria.
 
 ## Mini Rules
 
@@ -37,3 +40,5 @@ from this file.
 - For logs and smoke checks, use `idf.py -p COM14 monitor`; exit with `Ctrl+]`.
 - There are no separate tests or linters currently; do not invent commands
   until matching configs exist.
+- During `feature-artifacts` work, do not change application code; create only
+  documentation under `features/NNN-YYYY-MM-DD-feature-slug/`.
