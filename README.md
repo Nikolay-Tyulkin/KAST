@@ -11,6 +11,7 @@ charge as a percentage, and is controlled by three external buttons.
 The repository currently contains an ESP-IDF MVP firmware:
 
 - row counting with `+` and `-` buttons;
+- Wi-Fi settings portal for boot beep, screen brightness, and screen sleep;
 - a universal button for start, pause, resume, reset, and secondary actions;
 - confirmed row reset flow;
 - a display with a large row counter, session status, battery percentage, and firmware version;
@@ -79,6 +80,22 @@ state is active low (`0`).
 Row reset sequence: `3` short presses of the universal button, then `1` long
 press within a `2 s` window, then confirmation with one short press within
 `5 s`.
+
+Hold `+` for `3 s` in the main screen to toggle the settings Wi-Fi AP. When AP
+is enabled, the device screen shows `SETTINGS` and the manual settings URL.
+
+## Settings Portal
+
+The device can expose a local Wi-Fi settings page without an external router.
+
+- AP SSID: `KAST Settings`.
+- Manual URL: `http://192.168.4.1`.
+- Captive portal DNS tries to open the settings page automatically after joining
+  the AP; if the OS does not open it, use the manual URL.
+- Settings are applied after `Save` and persisted in NVS.
+- Available settings: boot beep on/off, screen brightness `0..100`, screen sleep
+  on/off, and time until screen dimming.
+- Current rows are saved after every row change and restored after power off/on.
 
 ## Hardware
 

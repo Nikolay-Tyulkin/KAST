@@ -1,90 +1,92 @@
 # Acceptance Criteria: Device Settings Captive Portal
 
-## Критерии приемки
+## Acceptance Criteria
 
-- В основном меню удержание кнопки `+` 3 секунды включает Wi-Fi AP.
-- Повторное удержание кнопки `+` 3 секунды в основном меню выключает Wi-Fi AP.
-- Короткое нажатие `+` продолжает добавлять rows и не включает AP.
-- После включения AP экран использует цветовую схему как на паузе.
-- После включения AP сверху на экране показано `Настройки`.
-- После включения AP на экране показан IP-адрес для ручного открытия страницы.
-- После подключения к Wi-Fi устройства ОС пытается открыть captive portal со страницей настроек.
-- Если captive portal не открылся автоматически, страница настроек доступна вручную по `http://192.168.4.1`.
-- На странице настроек есть boot beep toggle.
-- Boot beep toggle управляет только звуком при включении устройства.
-- На странице настроек есть brightness control от `0` до `100`.
-- Значение brightness по умолчанию равно `50` при пустых настройках.
-- На странице настроек есть sleep mode toggle.
-- На странице настроек есть поле времени до затухания экрана для sleep mode.
-- Если sleep mode включен, экран затухает после настроенного времени бездействия.
-- Если sleep mode выключен, экран не затухает автоматически по sleep timeout.
-- Изменения настроек применяются только после нажатия `Save`.
-- После `Save` настройки сохраняются и восстанавливаются после перезагрузки.
-- После каждого изменения rows текущее значение сохраняется для восстановления после выключения питания.
-- После выключения и включения устройство продолжает текущую row-сессию с последнего сохраненного значения.
-- Сборка firmware проходит через `idf.py build` после активации ESP-IDF профиля.
+- Holding `+` for `3 s` from the main screen enables Wi-Fi AP.
+- Holding `+` for `3 s` again disables Wi-Fi AP.
+- Short `+` continues to add one row and does not enable AP.
+- After AP starts, the device screen uses the pause color scheme.
+- After AP starts, the device screen shows `SETTINGS`.
+- After AP starts, the device screen shows `KAST Settings` and `http://192.168.4.1`.
+- Battery percentage remains visible and is not covered by missing glyph boxes or settings text.
+- After joining the device Wi-Fi AP, the OS may open the captive portal automatically.
+- If captive portal does not open automatically, the settings page is available at `http://192.168.4.1`.
+- The web settings page is in English.
+- The web settings page has a boot beep toggle.
+- Boot beep controls only the startup melody.
+- The web settings page has brightness control from `0` to `100`.
+- Default brightness is `50` when settings are empty.
+- The web settings page has a screen sleep toggle.
+- The web settings page has a screen sleep timeout in seconds.
+- If screen sleep is enabled, the display dims after the configured idle timeout.
+- If screen sleep is disabled, the display does not dim because of the sleep timeout.
+- Settings apply only after pressing `Save`.
+- After `Save`, settings persist and restore after reboot.
+- Current rows are saved after every row change.
+- After power off/on, the device restores the last saved row session.
+- Firmware builds with `idf.py build` after activating the ESP-IDF profile.
 
-## Основные сценарии проверки
+## Main Verification Scenarios
 
-- Запустить устройство с чистыми настройками, проверить brightness `50` и дефолты остальных настроек согласно подтвержденным решениям.
-- В основном меню коротко нажать `+`, убедиться, что rows увеличились на `1`, AP не включился.
-- В основном меню удержать `+` 3 секунды, убедиться, что AP включился.
-- Проверить, что экран AP-настроек окрашен как пауза, сверху написано `Настройки`, IP-адрес виден на экране.
-- Подключиться к AP с телефона, проверить captive portal и ручной адрес `http://192.168.4.1`.
-- Изменить brightness, нажать `Save`, убедиться, что яркость применена.
-- Изменить sleep mode и время до затухания, нажать `Save`, убедиться, что настройка сохранена и экран затухает или не затухает согласно настройкам.
-- Изменить boot beep, нажать `Save`, перезагрузить устройство, убедиться, что boot beep ведет себя согласно настройке.
-- Удержать `+` 3 секунды повторно, убедиться, что AP выключился.
-- Изменить rows, выключить питание, включить устройство, убедиться, что rows восстановились.
+- Start with empty settings and verify defaults: boot beep enabled, brightness `50`, screen sleep disabled, timeout `60 s`.
+- Short press `+` from the main screen and verify rows increase by `1` and AP stays off.
+- Hold `+` for `3 s` from the main screen and verify AP starts.
+- Verify the device screen shows `SETTINGS`, `KAST Settings`, and `http://192.168.4.1` without overlap.
+- Join `KAST Settings` from a phone and verify captive portal or manual URL.
+- Change brightness, press `Save`, and verify brightness applies and persists.
+- Change screen sleep and timeout, press `Save`, and verify dimming behavior.
+- Change boot beep, press `Save`, reboot, and verify startup melody behavior.
+- Hold `+` for `3 s` again and verify AP stops.
+- Change rows, power off, power on, and verify rows are restored.
 
-## Негативные сценарии
+## Negative Scenarios
 
-- Открыть неизвестный URL при подключении к AP; устройство должно перенаправить или отдать страницу настроек captive portal без crash.
-- Отправить некорректное brightness значение ниже `0` или выше `100`; устройство должно отклонить или привести значение к допустимому диапазону.
-- Отправить некорректный HTTP-запрос на `Save`; устройство не должно сохранять поврежденные настройки.
-- Потерять подключение к AP во время редактирования без `Save`; настройки не должны измениться.
-- Удержать `+` вне основного меню; AP не должен переключаться, если этот экран или состояние не поддерживает действие.
+- Open an unknown URL while connected to AP; the device should serve the settings page or redirect without crashing.
+- Submit brightness below `0` or above `100`; the device clamps the value to the valid range.
+- Submit malformed `Save` query; the device must not crash.
+- Disconnect while editing without `Save`; settings must not change.
+- Hold `+` outside supported states; AP must not toggle where it would conflict with other flows.
 
-## Edge cases
+## Edge Cases
 
-- Очень быстрые последовательные нажатия `+` или `-` должны корректно сохранять последнее значение rows.
-- Перезагрузка сразу после изменения rows должна восстановить последнее подтвержденное значение, насколько это возможно для выбранной NVS-стратегии.
-- Перезагрузка сразу после `Save` должна восстановить сохраненные настройки.
-- Captive portal может не открыться автоматически на части устройств; ручной адрес `192.168.4.1` должен оставаться рабочим.
-- AP включен, а sleep mode включен: поведение должно соответствовать подтвержденному правилу приоритета AP или сна; IP-адрес должен быть снова доступен после пробуждения экрана.
-- NVS пустой, поврежденный или содержит старые ключи: устройство должно использовать безопасные дефолты.
+- Very fast `+` or `-` presses should persist the latest row value.
+- Reboot immediately after a row change should restore the latest committed value.
+- Reboot immediately after `Save` should restore saved settings.
+- Captive portal may not open automatically on some OS versions; `http://192.168.4.1` must still work.
+- AP enabled and screen sleep enabled must follow the confirmed priority behavior.
+- Missing or invalid NVS settings/session blobs must fall back safely.
 
-## Требования к тестам
+## Test Requirements
 
-- Если в проекте появятся unit-тесты, покрыть парсинг и валидацию настроек.
-- Если в проекте появятся unit-тесты, покрыть load/save настроек с дефолтами.
-- Если в проекте появятся unit-тесты, покрыть валидацию времени до затухания экрана.
-- Если в проекте появятся unit-тесты, покрыть восстановление текущих rows из хранилища.
-- На текущем этапе подтвержденный обязательный автоматический check: `idf.py build`.
+- If unit tests are added later, cover settings parsing and validation.
+- If unit tests are added later, cover settings load/save defaults.
+- If unit tests are added later, cover screen sleep timeout validation.
+- If unit tests are added later, cover current rows restore from storage.
+- Current required automated check: `idf.py build`.
 
-## Ручная проверка
+## Manual Verification
 
-- Активировать ESP-IDF PowerShell профиль: `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
-- Выполнить `idf.py build`.
-- Перед flash увеличить `PROJECT_VER` dev counter в root `CMakeLists.txt`.
-- Flash на текущую плату: `idf.py -p COM14 build flash`.
-- Проверить на экране новую версию firmware внизу.
-- Проверить `+`, `-`, долгий `+`, экран `Настройки` с IP-адресом, captive portal, ручной адрес, `Save`, sleep timeout, reboot restore для settings и rows.
+- Activate ESP-IDF PowerShell profile: `. "C:\Espressif\tools\Microsoft.v6.0.1.PowerShell_profile.ps1"`.
+- Run `idf.py build`.
+- Before flashing, increment `PROJECT_VER` in root `CMakeLists.txt`.
+- Flash the current board: `idf.py -p COM3 build flash` or the active board port.
+- Verify the new firmware version at the bottom of the screen.
+- Verify `+`, `-`, long `+`, settings screen, captive portal, manual URL, `Save`, screen sleep, and reboot restore for settings and rows.
 
-## Что считается готовым
+## Definition Of Done
 
-- Документированные настройки реализованы на веб-странице и сохраняются через `Save`.
-- Экран AP-настроек показывает `Настройки` и IP-адрес в цветовой схеме паузы.
-- AP включается и выключается долгим `+` на 3 секунды из основного меню.
-- Captive portal работает настолько, насколько позволяет ОС, а `192.168.4.1` всегда доступен как fallback.
-- Текущая row-сессия восстанавливается после выключения и включения.
-- Firmware собирается через `idf.py build`.
-- Ручная проверка на устройстве пройдена для основных сценариев.
+- The settings web page is English and saves settings through `Save`.
+- The AP starts and stops through long `+` from the main/settings state.
+- Captive portal works where the OS allows it, and `http://192.168.4.1` works as fallback.
+- The settings screen is English and does not overlap the battery percentage.
+- Current row session restores after power off/on.
+- Firmware builds through `idf.py build`.
+- Manual device verification passes for the main scenarios.
 
-## Что не проверяется в рамках фичи
+## Not Verified In This Feature
 
-- Стабильность captive portal на всех версиях iOS, Android, Windows и macOS.
-- Долговременный износ flash при многомесячном сохранении rows после каждого изменения.
-- Безопасность публичного AP против атак; авторизация не входит в текущий scope.
-- OTA-обновление firmware через веб-страницу.
-- Работа с внешним Wi-Fi роутером в STA-режиме.
+- Captive portal consistency across all iOS, Android, Windows, and macOS versions.
+- Long-term flash wear from months of saving every row change.
+- Security of an open AP against hostile users; authentication is out of scope.
+- OTA update through the web page.
+- Station-mode Wi-Fi through an external router.

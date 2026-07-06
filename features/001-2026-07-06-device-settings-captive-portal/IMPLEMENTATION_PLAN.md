@@ -1,91 +1,85 @@
 # Implementation Plan: Device Settings Captive Portal
 
-## Предпосылки
+## Prerequisites
 
-- Подтвердить hardware для boot beep: наличие звукового компонента и GPIO.
-- Подтвердить SSID и пароль точки доступа.
-- Подтвердить диапазон и дефолт времени до затухания экрана для sleep mode.
-- Подтвердить поведение кнопок при пробуждении из затухшего экрана.
-- Изучить текущую структуру `main/main.c`: обработку кнопок, NVS, экран, состояние сессии и статистику.
-- Сохранять терминологию `rows` во всех новых UI-текстах и логике.
+- Confirm the board target remains ESP-IDF `esp32s3`.
+- Use existing external button mappings: `+ = GPIO2`, `- = GPIO16`, universal = `GPIO17`, active low.
+- Use current buzzer hardware on `GPIO42` for the startup melody.
+- Use `GPIO15` backlight PWM for brightness and screen dimming.
+- Keep `rows` terminology in UI and logic.
 
-## Этапы реализации
+## Implementation Stages
 
-1. Расширить модель настроек устройства.
-2. Добавить NVS-хранилище для настроек.
-3. Добавить восстановление текущей row-сессии при старте.
-4. Добавить сохранение текущей row-сессии после каждого изменения rows.
-5. Добавить обработку долгого нажатия кнопки `+` на 3 секунды только в основном меню.
-6. Добавить Wi-Fi AP lifecycle: старт, остановка, статус.
-7. Добавить HTTP-сервер со страницей настроек и обработчиком `Save`.
-8. Добавить captive portal DNS-перехват и fallback-доступ по `192.168.4.1`.
-9. Применить настройки к устройству: boot beep при включении, яркость экрана, sleep mode как затухание экрана.
-10. Добавить экран AP-настроек: цветовая схема как у паузы, заголовок `Настройки`, IP-адрес для ручного открытия страницы.
-11. Проверить сборку и ручные сценарии на устройстве.
+1. Extend the persistent device settings model.
+2. Add NVS load/save for settings with safe defaults.
+3. Add current session persistence and restore.
+4. Save current session state after every row change and key session transition.
+5. Add per-button long-press durations so `+` can use a `3 s` AP toggle while other long presses keep existing behavior.
+6. Add Wi-Fi AP lifecycle: start, stop, and status.
+7. Add an HTTP settings page with a `Save` handler.
+8. Add captive portal DNS interception with fallback access at `http://192.168.4.1`.
+9. Apply settings to boot beep, backlight brightness, and screen sleep dimming.
+10. Add the device settings screen using the pause color scheme, title `SETTINGS`, SSID, and manual URL.
+11. Increase the app partition preset to `single app large`, because Wi-Fi and HTTP support exceed the default `1 MB` app partition.
+12. Build and flash firmware for device verification.
 
-## Предполагаемые файлы и модули
+## Expected Files And Modules
 
-- `main/main.c` - вероятное место первичной интеграции, если проект останется однофайловым.
-- `main/CMakeLists.txt` - при необходимости добавить новые исходные файлы.
-- Потенциальный новый модуль `main/settings.*` - структура настроек и NVS load/save.
-- Потенциальный новый модуль `main/session_store.*` - сохранение и восстановление текущей row-сессии.
-- Потенциальный новый модуль `main/wifi_portal.*` - Wi-Fi AP, HTTP-сервер и DNS captive portal.
-- Root `CMakeLists.txt` - только при flash-релизе нужно увеличить `PROJECT_VER` dev counter.
+- `main/main.c` - current single-file firmware implementation.
+- `main/CMakeLists.txt` - add ESP-IDF Wi-Fi, HTTP server, and networking dependencies.
+- `sdkconfig` - generated ESP-IDF configuration updated for the larger app partition.
+- `sdkconfig.defaults` - default partition preset for reproducible builds.
+- `README.md` - user-facing behavior and settings portal instructions.
+- Root `CMakeLists.txt` - increment `PROJECT_VER` before flashing.
 
-## Зависимости между задачами
+## Task Dependencies
 
-- NVS-настройки должны быть реализованы до веб-страницы, чтобы `Save` сохранял реальные значения.
-- Сохранение row-сессии должно быть отделено от веб-портала, так как оно критично независимо от AP.
-- Обработка долгого нажатия `+` должна учитывать существующее короткое нажатие `+` для добавления rows.
-- Wi-Fi AP должен быть готов до captive portal DNS, так как DNS-перехват работает только после подключения к AP.
-- Применение sleep mode зависит от настройки включения, времени до затухания и правил пробуждения.
-- Boot beep зависит от подтвержденного звукового hardware.
+- NVS settings must exist before the web `Save` handler can persist real values.
+- Current session persistence is independent from the settings portal and must work even when AP is never enabled.
+- The `+` long-press handler must not turn a long press into a row increment.
+- Wi-Fi AP must start before DNS captive portal and HTTP serving are useful.
+- Screen sleep depends on brightness PWM support.
+- The app partition must be large enough before flash can succeed.
 
-## Проверки по этапам
+## Stage Checks
 
-- После расширения настроек: сборка `idf.py build`.
-- После NVS-настроек: проверить, что дефолты применяются при пустом NVS, включая brightness `50`.
-- После сохранения row-сессии: изменить rows, перезапустить устройство, убедиться, что значение восстановилось.
-- После кнопки AP: удержание `+` 3 секунды в основном меню включает AP, повторное удержание выключает AP.
-- После HTTP-сервера: открыть `http://192.168.4.1`, изменить настройки, нажать `Save`, проверить применение.
-- После captive portal: подключиться к AP с телефона и проверить автооткрытие страницы или системное уведомление captive portal.
-- После экрана AP-настроек: проверить цвет как на паузе, заголовок `Настройки` сверху и отображение IP-адреса.
-- После интеграции sleep mode: проверить, что экран затухает после настроенного таймаута, пробуждается по подтвержденному правилу и не мешает сохранению rows.
+- After settings persistence: build with `idf.py build`.
+- After session persistence: change rows, power off/on, and confirm the row count is restored.
+- After button handling: short `+` increments rows, long `+` toggles AP.
+- After HTTP server: open `http://192.168.4.1`, change settings, press `Save`, and confirm settings apply.
+- After captive portal: join `KAST Settings` from a phone and verify automatic portal opening or manual fallback.
+- After settings screen: verify pause color, `SETTINGS`, SSID, URL, and battery percentage do not overlap.
+- After screen sleep: verify the display dims after the configured timeout and wakes on button activity.
 
-## Миграции и данные
+## Migrations And Data
 
-- Добавить версионируемую структуру настроек в NVS или отдельные ключи с безопасными дефолтами.
-- Дефолты при отсутствии настроек: boot beep включен или выключен требует подтверждения, brightness `50`, sleep mode требует подтверждения дефолта, время до затухания требует подтверждения дефолта.
-- Добавить ключи текущей сессии: текущие rows и минимально необходимый session state для продолжения после reboot.
-- Обработка поврежденных или отсутствующих NVS-значений должна возвращаться к безопасным дефолтам, не вызывая crash.
-- Для rows нужно выбрать стратегию записи, которая выполняет требование "после каждого изменения", но снижает риск лишнего износа flash, если это возможно без потери надежности.
+- Add a versioned settings blob in NVS.
+- Settings defaults: boot beep enabled, brightness `50`, screen sleep disabled, sleep timeout `60 s`.
+- Add a versioned current-session blob in NVS.
+- Session persistence stores at least active flag, rows, session state, and accumulated active time.
+- Missing or invalid NVS blobs fall back to safe defaults without crashing.
+- Existing history storage remains separate.
 
-## Документация
+## Documentation
 
-- Обновить README или firmware notes с инструкцией подключения к Wi-Fi AP и ручным адресом `192.168.4.1`.
-- Описать кнопку `+`: короткое нажатие добавляет rows, удержание 3 секунды в основном меню переключает AP.
-- Описать настройки веб-страницы: boot beep, brightness `0..100`, sleep mode on/off и время до затухания.
-- Описать экран AP-настроек: цвет как на паузе, заголовок `Настройки`, IP-адрес для ручного открытия.
-- Описать ограничение captive portal: автооткрытие зависит от ОС, ручной адрес остается fallback.
-- Обновить инструкции smoke check после flash.
+- Update README with AP toggle, SSID, manual URL, and settings descriptions.
+- Document that captive portal automatic opening depends on the OS.
+- Document that current rows are saved after every row change.
+- Keep feature artifacts in English and aligned with implemented firmware behavior.
 
-## Риски реализации
+## Implementation Risks
 
-- Долгое нажатие `+` может конфликтовать с существующим добавлением rows, если обработчик не разделяет short и long press.
-- Captive portal может работать неодинаково на iOS, Android, Windows и macOS.
-- HTTP и DNS серверы занимают RAM; нужно следить за memory footprint.
-- Частые NVS-записи rows могут увеличить износ flash.
-- AP и sleep mode могут иметь противоречивые требования по энергопотреблению и доступности страницы.
-- Если экран затухает во время включенного AP, пользователь может потерять подсказку с IP-адресом.
-- Boot beep нельзя корректно реализовать без подтвержденного hardware.
+- Wi-Fi and HTTP significantly increase firmware size.
+- DNS captive portal handling may differ across Android, iOS, Windows, and macOS.
+- Frequent row writes may increase NVS flash wear.
+- AP mode increases battery drain.
+- Screen sleep may hide the manual URL while AP is enabled.
+- LVGL Cyrillic text requires a font with Cyrillic glyphs; the current device screen uses English to avoid missing glyph boxes.
 
-## Решения, требующие подтверждения
+## Decisions Requiring Confirmation
 
-- SSID точки доступа.
-- Пароль точки доступа или открытая сеть.
-- Дефолт boot beep: включен или выключен.
-- Дефолт sleep mode: включен или выключен.
-- Диапазон и дефолт времени до затухания экрана.
-- Должен ли AP блокировать затухание экрана или только пробуждаться кнопкой.
-- Должно ли первое нажатие кнопки после затухания только пробуждать экран или сразу выполнять действие.
-- GPIO и тип звукового hardware для boot beep.
+- Whether to add AP password protection later.
+- Whether AP should stop automatically after inactivity.
+- Whether AP should temporarily disable screen sleep.
+- Whether first button press after dimming should only wake the screen.
+- Whether to implement wear-aware row storage.

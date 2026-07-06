@@ -4,19 +4,19 @@ description: Use when preparing a new product feature before implementation: cre
 license: MIT
 compatibility: opencode
 metadata:
-  project: task-manager-ai
+  project: knitting_assistant
   purpose: feature-artifacts
 ---
 
-## Когда использовать
+## When To Use
 
-Используй этот skill, когда пользователь просит подготовить новую продуктовую
-фичу, оформить feature artifacts, создать спецификацию фичи, план реализации и
-критерии приемки до изменения кода приложения.
+Use this skill when the user asks to prepare a new product feature, feature
+artifacts, a feature specification, an implementation plan, or acceptance
+criteria before changing application code.
 
-## Обязательный результат
+## Required Output
 
-Создай папку фичи со структурой:
+Create a feature folder with this structure:
 
 ```text
 features/
@@ -26,72 +26,74 @@ features/
     ACCEPTANCE_CRITERIA.md
 ```
 
-## Правило именования папки
+## Folder Naming Rule
 
-Имя папки должно иметь формат `NNN-YYYY-MM-DD-feature-slug`:
+The folder name must use the format `NNN-YYYY-MM-DD-feature-slug`:
 
-- `NNN` - трехзначный порядковый номер фичи, например `001`, `002`, `003`.
-- `YYYY-MM-DD` - дата создания артефактов.
-- `feature-slug` - короткое описание фичи в kebab-case на английском языке.
-- Для нового номера проверь существующие папки в `features/` и используй
-  следующий свободный номер.
-- Если `features/` еще нет, создай ее и начни с `001`.
+- `NNN` is a three-digit feature number, for example `001`, `002`, `003`.
+- `YYYY-MM-DD` is the artifact creation date.
+- `feature-slug` is a short feature description in English kebab-case.
+- For a new number, inspect existing folders in `features/` and use the next
+  available number.
+- If `features/` does not exist yet, create it and start with `001`.
 
 ## FEATURE_SPEC.md
 
-Обязательные разделы:
+Required sections:
 
-- `# Feature Spec: <название фичи>`
-- `## Цель`
-- `## Контекст и проблема`
-- `## Целевые пользователи`
-- `## Пользовательские сценарии`
-- `## Функциональные требования`
-- `## Нефункциональные требования`
-- `## Вне scope`
-- `## Зависимости и ограничения`
-- `## Открытые вопросы`
-- `## Риски и допущения`
+- `# Feature Spec: <feature name>`
+- `## Goal`
+- `## Context And Problem`
+- `## Target Users`
+- `## User Scenarios`
+- `## Functional Requirements`
+- `## Non-Functional Requirements`
+- `## Out Of Scope`
+- `## Dependencies And Constraints`
+- `## Open Questions`
+- `## Risks And Assumptions`
 
 ## IMPLEMENTATION_PLAN.md
 
-Обязательные разделы:
+Required sections:
 
-- `# Implementation Plan: <название фичи>`
-- `## Предпосылки`
-- `## Этапы реализации`
-- `## Предполагаемые файлы и модули`
-- `## Зависимости между задачами`
-- `## Проверки по этапам`
-- `## Миграции и данные`
-- `## Документация`
-- `## Риски реализации`
-- `## Решения, требующие подтверждения`
+- `# Implementation Plan: <feature name>`
+- `## Prerequisites`
+- `## Implementation Stages`
+- `## Expected Files And Modules`
+- `## Task Dependencies`
+- `## Stage Checks`
+- `## Migrations And Data`
+- `## Documentation`
+- `## Implementation Risks`
+- `## Decisions Requiring Confirmation`
 
 ## ACCEPTANCE_CRITERIA.md
 
-Обязательные разделы:
+Required sections:
 
-- `# Acceptance Criteria: <название фичи>`
-- `## Критерии приемки`
-- `## Основные сценарии проверки`
-- `## Негативные сценарии`
-- `## Edge cases`
-- `## Требования к тестам`
-- `## Ручная проверка`
-- `## Что считается готовым`
-- `## Что не проверяется в рамках фичи`
+- `# Acceptance Criteria: <feature name>`
+- `## Acceptance Criteria`
+- `## Main Verification Scenarios`
+- `## Negative Scenarios`
+- `## Edge Cases`
+- `## Test Requirements`
+- `## Manual Verification`
+- `## Definition Of Done`
+- `## Not Verified In This Feature`
 
-## Правила
+## Rules
 
-- Не меняй код приложения при создании артефактов фичи.
-- Не создавай frontend, backend, database, AI-интеграции, Docker-артефакты или
-  тесты приложения в рамках этого skill.
-- Разрешено создавать и изменять только документационные артефакты фичи в
+- Do not change application code while creating feature artifacts.
+- Do not create frontend, backend, database, AI integration, Docker artifacts, or
+  application tests as part of this skill.
+- Only create or update documentation artifacts under
   `features/NNN-YYYY-MM-DD-feature-slug/`.
-- Если границы фичи, цель, пользовательский сценарий или scope неясны, задай
-  уточняющий вопрос до создания файлов.
-- Если есть уточняющие вопросы, задавай их через инструмент `question`.
-- Не фиксируй непроверенные допущения как требования: явно отмечай их в
-  разделах `Открытые вопросы`, `Риски и допущения` или `Решения, требующие
-  подтверждения`.
+- Write feature artifacts in English.
+- Use the term `rows` for device UI and logic unless the user explicitly asks
+  for different terminology.
+- If the feature boundary, goal, user scenario, or scope is unclear, ask a
+  clarification question before creating files.
+- Ask clarification questions through the `question` tool.
+- Do not record unverified assumptions as requirements. Put them explicitly in
+  `Open Questions`, `Risks And Assumptions`, or `Decisions Requiring Confirmation`.
