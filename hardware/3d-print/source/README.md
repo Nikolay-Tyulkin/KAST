@@ -6,7 +6,8 @@ Source STEP files for the KAST enclosure and components.
 
 | File | Purpose |
 | --- | --- |
-| `KA-000-AS.step` | Full device assembly |
+| `KA-000-AS - external band.step` | Full device assembly with the standard 22 mm purchased band holder |
+| `KA-000-AS.step` | Legacy full device assembly with the cast silicone strap |
 
 ## 3D-Printed Parts
 
@@ -17,14 +18,15 @@ Source STEP files for the KAST enclosure and components.
 | `KA-003-3D - Main button.step` | Main universal button |
 | `KA-004-3D - Counter button.step` | Row-counter buttons |
 | `KA-005-3D - Back case.step` | Back case |
-| `KA-008-3D - Band holder.step` | Strap holder |
-| `KA-009-3D - Band mashroom.step` | Strap fastener |
+| `KA-008-3D - Band holder V2 (for extrnal band).step` | Standard 22 mm purchased band holder |
+| `KA-008-3D - Band holder.step` | Legacy cast silicone strap holder |
+| `KA-009-3D - Band mashroom.step` | Legacy cast silicone strap fastener |
 
 ## Strap
 
 | File | Purpose |
 | --- | --- |
-| `KA-007-S - Band.step` | Strap |
+| `KA-007-S - Band.step` | Legacy cast silicone strap |
 
 ## Components: Purchased Parts and CAD References
 

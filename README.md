@@ -1,6 +1,6 @@
 # KAST
 
-![KAST render](hardware/3d-print/images/KAST.png)
+![KAST render](hardware/3d-print/images/KAST_V1.1.png)
 
 KAST is a portable knitting assistant based on the
 `Waveshare ESP32-S3-LCD-1.69` board. The device counts rows, shows battery
@@ -16,13 +16,13 @@ The repository currently contains an ESP-IDF MVP firmware:
 - confirmed row reset flow;
 - a display with a large row counter, session status, battery percentage, and firmware version;
 - session, statistics, and history persistence in NVS;
-- enclosure, assembly, and 3D printing materials in `hardware/`.
+- enclosure, 22 mm strap attachment, assembly, and 3D printing materials in `hardware/`.
 
 The project is built with ESP-IDF CLI. Arduino and PlatformIO are not used.
 
 ## Video Demonstration
 
-[![KAST Demonstration](https://img.youtube.com/vi/uReX32vW19Y/0.jpg)](https://www.youtube.com/watch?v=uReX32vW19Y)
+[![KAST Demonstration](https://img.youtube.com/vi/3yuL7Apywl4/0.jpg)](https://www.youtube.com/shorts/3yuL7Apywl4)
 
 ## Quick Start
 
@@ -105,7 +105,8 @@ Key board and wiring facts:
 - LCD: `SCLK=GPIO6`, `MOSI=GPIO7`, `RST=GPIO8`, `DC=GPIO4`, `CS=GPIO5`, `BL=GPIO15`;
 - power latch: `SYS_OUT=GPIO40`, `SYS_EN=GPIO41`;
 - battery ADC: `GPIO1`, which is `ADC_UNIT_1` / `ADC_CHANNEL_0` in ESP-IDF;
-- battery divider: `R3=200k`, `R7=100k`, voltage multiplier `3`.
+- battery divider: `R3=200k`, `R7=100k`, voltage multiplier `3`;
+- primary strap: standard 22 mm purchased band with a 3D-printed holder.
 
 Hardware documentation:
 
