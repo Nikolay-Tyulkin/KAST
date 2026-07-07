@@ -1,9 +1,9 @@
 # Hardware
 
 This section contains the physical-device materials for KAST: enclosure files,
-3D-printing assets, assembly photos, and component notes.
+3D-printing assets, assembly photos, strap options, and component notes.
 
-![prototype.png](3d-print/images/prototype.png)
+![prototype_v1.1.jpeg](3d-print/images/prototype_v1.1.jpeg)
 
 ## Sections
 
@@ -22,6 +22,7 @@ This section contains the physical-device materials for KAST: enclosure files,
 - Screen: integrated board LCD
 - Controls: 3 external buttons
 - Power: battery connected to the board
+- Strap: standard 22 mm purchased band
 - Main use case: row counting while knitting
 
 ## License

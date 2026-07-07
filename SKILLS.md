@@ -16,6 +16,12 @@ from this file.
 - `quality-gate` (`.opencode/skills/quality-gate/SKILL.md`) - use before a
   final answer for implementation tasks: what was checked, what was not checked,
   and what risks remain.
+- `feature-artifacts` (`.opencode/skills/feature-artifacts/SKILL.md`) - use when
+  preparing English product feature artifacts before implementation: feature
+  spec, implementation plan, and acceptance criteria.
+- `release-notes-github` (`.opencode/skills/release-notes-github/SKILL.md`) -
+  use when drafting English GitHub release notes for KAST releases from a source
+  tag to a target tag.
 
 ## Mini Rules
 
@@ -30,10 +36,12 @@ from this file.
 - Confirmed board flash command: `idf.py -p COM14 build flash`, unless the user
   specifies another port.
 - Before assistant-performed flashing, increment `PROJECT_VER` in the root
-  `CMakeLists.txt` to the next `0.0.1-dev.N`; the version must be shown at the
-  bottom of the screen after flashing.
+  `CMakeLists.txt` to the next SemVer dev build; the version must be shown at
+  the bottom of the screen after flashing.
 - Battery mapping: Waveshare `GPIO1/BAT_ADC` maps to ESP-IDF `ADC_CHANNEL_0` on
   ESP32-S3; voltage divider is `200k/100k`, multiplier `3`.
 - For logs and smoke checks, use `idf.py -p COM14 monitor`; exit with `Ctrl+]`.
 - There are no separate tests or linters currently; do not invent commands
   until matching configs exist.
+- During `feature-artifacts` work, do not change application code; create only
+  English documentation under `features/NNN-YYYY-MM-DD-feature-slug/`.
