@@ -1,6 +1,6 @@
 # KAST
 
-![KAST render](hardware/3d-print/images/KAST.png)
+![KAST render](hardware/3d-print/images/KAST_V1.1.png)
 
 KAST is a portable knitting assistant based on the
 `Waveshare ESP32-S3-LCD-1.69` board. The device counts rows, shows battery
@@ -11,17 +11,18 @@ charge as a percentage, and is controlled by three external buttons.
 The repository currently contains an ESP-IDF MVP firmware:
 
 - row counting with `+` and `-` buttons;
+- Wi-Fi settings portal for boot beep, screen brightness, and screen sleep;
 - a universal button for start, pause, resume, reset, and secondary actions;
 - confirmed row reset flow;
 - a display with a large row counter, session status, battery percentage, and firmware version;
 - session, statistics, and history persistence in NVS;
-- enclosure, assembly, and 3D printing materials in `hardware/`.
+- enclosure, 22 mm strap attachment, assembly, and 3D printing materials in `hardware/`.
 
 The project is built with ESP-IDF CLI. Arduino and PlatformIO are not used.
 
 ## Video Demonstration
 
-[![KAST Demonstration](https://img.youtube.com/vi/uReX32vW19Y/0.jpg)](https://www.youtube.com/watch?v=uReX32vW19Y)
+[![KAST Demonstration](https://img.youtube.com/vi/3yuL7Apywl4/0.jpg)](https://www.youtube.com/shorts/3yuL7Apywl4)
 
 ## Quick Start
 
@@ -80,6 +81,22 @@ Row reset sequence: `3` short presses of the universal button, then `1` long
 press within a `2 s` window, then confirmation with one short press within
 `5 s`.
 
+Hold `+` for `3 s` in the main screen to toggle the settings Wi-Fi AP. When AP
+is enabled, the device screen shows `SETTINGS` and the manual settings URL.
+
+## Settings Portal
+
+The device can expose a local Wi-Fi settings page without an external router.
+
+- AP SSID: `KAST Settings`.
+- Manual URL: `http://192.168.4.1`.
+- Captive portal DNS tries to open the settings page automatically after joining
+  the AP; if the OS does not open it, use the manual URL.
+- Settings are applied after `Save` and persisted in NVS.
+- Available settings: boot beep on/off, screen brightness `0..100`, screen sleep
+  on/off, and time until screen dimming.
+- Current rows are saved after every row change and restored after power off/on.
+
 ## Hardware
 
 Key board and wiring facts:
@@ -88,7 +105,8 @@ Key board and wiring facts:
 - LCD: `SCLK=GPIO6`, `MOSI=GPIO7`, `RST=GPIO8`, `DC=GPIO4`, `CS=GPIO5`, `BL=GPIO15`;
 - power latch: `SYS_OUT=GPIO40`, `SYS_EN=GPIO41`;
 - battery ADC: `GPIO1`, which is `ADC_UNIT_1` / `ADC_CHANNEL_0` in ESP-IDF;
-- battery divider: `R3=200k`, `R7=100k`, voltage multiplier `3`.
+- battery divider: `R3=200k`, `R7=100k`, voltage multiplier `3`;
+- primary strap: standard 22 mm purchased band with a 3D-printed holder.
 
 Hardware documentation:
 

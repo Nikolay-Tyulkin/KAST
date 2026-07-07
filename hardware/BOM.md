@@ -22,6 +22,7 @@ the assembly.
 | C3 | No STEP | LiPo battery 042030P 320 mAh | 1 | Device power | 30 x 20 x 4 mm, manufacturer: Dongguan Yalitong Electronics Technology Co., Ltd |
 | C4 | No STEP | AWG 24 wire | As needed | Button and power wiring | Confirmed |
 | C5 | Screw | M2x5 | 4 | ESP32 board mounting | Confirmed |
+| C6 | No STEP | Standard 22 mm watch band | 1 | Primary wrist strap | Confirmed external part |
 
 ## 3D-Printed Device Parts
 
@@ -35,14 +36,15 @@ or `.3mf` and place print-ready files in `hardware/3d-print/enclosure/`.
 | P3 | `KA-003-3D - Main button.step` | Main button | 1 | Universal-button pusher | STEP available |
 | P4 | `KA-004-3D - Counter button.step` | Counter button | 1 | Pusher for `+` and `-` buttons | STEP available |
 | P5 | `KA-005-3D - Back case.step` | Back case | 1 | Enclosure back cover | STEP available |
-| P6 | `KA-008-3D - Band holder.step` | Strap holder | 1 | Strap attachment to the enclosure | STEP available |
-| P7 | `KA-009-3D - Band mashroom.step` | Strap fastener | 1 | Strap fixation | STEP available |
+| P6 | `KA-008-3D - Band holder V2 (for extrnal band).step` | 22 mm band holder | 1 | Primary attachment for a standard 22 mm purchased band | STEP available |
+| P7 | `KA-008-3D - Band holder.step` | Legacy strap holder | 1 | Alternative attachment for the cast silicone strap | STEP available |
+| P8 | `KA-009-3D - Band mashroom.step` | Legacy strap fastener | 1 | Alternative cast silicone strap fixation | STEP available |
 
 ## Silicone Strap
 
 | Item | STEP file | Name | Qty | Manufacturing | Status |
 | --- | --- | --- | --- | --- | --- |
-| S1 | `KA-007-S - Band.step` | Silicone strap | 1 | Cast with a 3D-printed mold | STEP available |
+| S1 | `KA-007-S - Band.step` | Legacy silicone strap | 1 | Cast with a 3D-printed mold | STEP available; alternative to the standard 22 mm purchased band |
 
 ## 3D-Printed Silicone Mold
 
@@ -57,7 +59,8 @@ part; it is tooling for producing the silicone strap.
 
 | Item | STEP file | Name | Purpose | Status |
 | --- | --- | --- | --- | --- |
-| A1 | `KA-000-AS.step` | Full assembly | Check relative placement of enclosure, strap, and components | STEP available |
+| A1 | `KA-000-AS - external band.step` | Full assembly with 22 mm band holder | Check relative placement of enclosure, purchased band holder, and components | STEP available |
+| A2 | `KA-000-AS.step` | Legacy full assembly with cast silicone strap | Check relative placement of enclosure, cast strap, and components | STEP available |
 
 ## Button Wiring
 
@@ -78,7 +81,8 @@ Buttons are connected between GPIO and `GND`; active level is `0`.
 ## Assembly Notes
 
 - All three tactile buttons are identical 12x12 mm components; quantity is 3.
-- The silicone strap is not printed as a final part; it is cast in a 3D-printed
-  mold.
+- The standard 22 mm purchased band is the primary strap option.
+- The silicone strap is an alternative option; it is not printed as a final part
+  and is cast in a 3D-printed mold.
 - `Molds/` currently contains `KA-100-M - Band mold part 1.step` for casting the
   silicone strap.

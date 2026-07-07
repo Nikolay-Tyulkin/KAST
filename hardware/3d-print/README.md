@@ -21,7 +21,8 @@ Slicer-ready files are in [`enclosure/`](enclosure/):
 
 | File | What to print |
 | --- | --- |
-| `all_parts.3mf` | Enclosure, buttons, strap holder, and strap fastener |
+| `all_parts_universal_band.3mf` | Recommended enclosure set with the standard 22 mm purchased band holder |
+| `all_parts.3mf` | Legacy enclosure set with the cast silicone strap holder and strap fastener |
 | `molds.3mf` | Tooling for casting the silicone strap |
 
 Source STEP files are in [`source/`](source/). If `.3mf` must be rebuilt or
