@@ -1,6 +1,5 @@
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
@@ -13,23 +12,20 @@
 #include "esp_adc/adc_oneshot.h"
 #include "esp_check.h"
 #include "esp_err.h"
-#include "esp_event.h"
-#include "esp_http_server.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_vendor.h"
 #include "esp_log.h"
-#include "esp_netif.h"
 #include "esp_random.h"
 #include "esp_timer.h"
-#include "esp_wifi.h"
-#include "lwip/inet.h"
-#include "lwip/sockets.h"
-#include "nvs.h"
 #include "nvs_flash.h"
 
 #include "esp_lvgl_port.h"
 #include "lvgl.h"
+
+#include "app_types.h"
+#include "storage.h"
+#include "wifi_portal.h"
 
 #define LCD_H_RES 250
 #define LCD_V_RES 280
@@ -95,64 +91,6 @@
 #define IDLE_HAPPY_MAX_MS 35000
 #define RESET_MULTI_CLICK_WINDOW_MS 2000
 #define RESET_CONFIRM_TIMEOUT_MS 5000
-#define HISTORY_MAX 20
-#define HISTORY_MAGIC 0x4b4e4954u
-#define HISTORY_VERSION 1u
-#define SETTINGS_MAGIC 0x4b535447u
-#define SETTINGS_VERSION 1u
-#define SESSION_MAGIC 0x4b534553u
-#define SESSION_VERSION 1u
-#define SETTINGS_AP_SSID "KAST Settings"
-#define SETTINGS_AP_PASS ""
-#define SETTINGS_AP_IP "192.168.4.1"
-#define SETTINGS_DNS_PORT 53
-
-typedef enum {
-    SESSION_NONE,
-    SESSION_ACTIVE,
-    SESSION_PAUSED,
-} session_state_t;
-
-typedef enum {
-    SCREEN_MAIN,
-    SCREEN_RESET_CONFIRM,
-    SCREEN_SETTINGS,
-} screen_mode_t;
-
-typedef struct {
-    uint32_t magic;
-    uint32_t version;
-    bool boot_beep_enabled;
-    uint8_t brightness_pct;
-    bool sleep_enabled;
-    uint16_t sleep_timeout_s;
-} settings_store_t;
-
-typedef struct {
-    uint32_t magic;
-    uint32_t version;
-    bool active;
-    int rows;
-    int64_t accumulated_active_ms;
-    int state;
-} session_store_t;
-
-typedef struct {
-    int rows;
-    int duration_s;
-    int reason;
-} history_entry_t;
-
-typedef struct {
-    uint32_t magic;
-    uint32_t version;
-    uint32_t count;
-    uint32_t next;
-    uint32_t total_rows;
-    uint32_t total_seconds;
-    history_entry_t last;
-    history_entry_t entries[HISTORY_MAX];
-} history_store_t;
 
 typedef struct {
     gpio_num_t pin;
@@ -181,7 +119,8 @@ static lv_obj_t *s_anim_label = NULL;
 static lv_obj_t *s_color_label = NULL;
 static lv_obj_t *s_version_label = NULL;
 static lv_obj_t *s_settings_title_label = NULL;
-static lv_obj_t *s_settings_ip_label = NULL;
+static lv_obj_t *s_settings_qr = NULL;
+static lv_obj_t *s_settings_url_label = NULL;
 
 static const uint32_t s_bg_palette[UI_BG_PALETTE_COUNT] = {
     0xD8F1C7, 0xF4EBD0, 0xFFE0E0, 0xFFD1A8, 0xFFF3A3,
@@ -220,11 +159,6 @@ static int64_t s_idle_next_happy_ms = 0;
 static int64_t s_last_activity_ms = 0;
 static bool s_ui_dirty = true;
 static bool s_display_dimmed = false;
-static bool s_wifi_started = false;
-static bool s_portal_running = false;
-static bool s_dns_running = false;
-static httpd_handle_t s_http_server = NULL;
-static TaskHandle_t s_dns_task = NULL;
 
 static const int s_startup_melody_hz[] = {
     523, 659, 784, 988, 1319, 988, 784, 1047,
@@ -346,156 +280,13 @@ static void format_duration(char *buf, size_t size, int duration_s)
     snprintf(buf, size, "%02d:%02d:%02d", hours, minutes, seconds);
 }
 
-static void history_reset(void)
-{
-    memset(&s_history, 0, sizeof(s_history));
-    s_history.magic = HISTORY_MAGIC;
-    s_history.version = HISTORY_VERSION;
-}
-
-static void settings_reset(void)
-{
-    memset(&s_settings, 0, sizeof(s_settings));
-    s_settings.magic = SETTINGS_MAGIC;
-    s_settings.version = SETTINGS_VERSION;
-    s_settings.boot_beep_enabled = true;
-    s_settings.brightness_pct = 50;
-    s_settings.sleep_enabled = false;
-    s_settings.sleep_timeout_s = 60;
-}
-
-static void settings_save(void)
-{
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("knit", NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS open for settings save failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    err = nvs_set_blob(handle, "settings", &s_settings, sizeof(s_settings));
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS settings save failed: %s", esp_err_to_name(err));
-    }
-    nvs_close(handle);
-}
-
-static void session_store_clear(void)
-{
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("knit", NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS open for session clear failed: %s", esp_err_to_name(err));
-        return;
-    }
-    err = nvs_erase_key(handle, "session");
-    if (err == ESP_OK || err == ESP_ERR_NVS_NOT_FOUND) {
-        err = nvs_commit(handle);
-    }
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS session clear failed: %s", esp_err_to_name(err));
-    }
-    nvs_close(handle);
-}
-
 static void session_store_save(void)
 {
-    session_store_t session = {
-        .magic = SESSION_MAGIC,
-        .version = SESSION_VERSION,
-        .active = s_session_state != SESSION_NONE,
-        .rows = s_rows,
-        .accumulated_active_ms = s_accumulated_active_ms,
-        .state = s_session_state,
-    };
+    int64_t accumulated_active_ms = s_accumulated_active_ms;
     if (s_session_state == SESSION_ACTIVE) {
-        session.accumulated_active_ms += now_ms() - s_active_started_ms;
+        accumulated_active_ms += now_ms() - s_active_started_ms;
     }
-
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("knit", NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS open for session save failed: %s", esp_err_to_name(err));
-        return;
-    }
-    err = nvs_set_blob(handle, "session", &session, sizeof(session));
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS session save failed: %s", esp_err_to_name(err));
-    }
-    nvs_close(handle);
-}
-
-static void storage_save(void)
-{
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("knit", NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS open for save failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    err = nvs_set_blob(handle, "history", &s_history, sizeof(s_history));
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS history save failed: %s", esp_err_to_name(err));
-    }
-    nvs_close(handle);
-}
-
-static void storage_load(void)
-{
-    history_reset();
-    settings_reset();
-
-    nvs_handle_t handle;
-    esp_err_t err = nvs_open("knit", NVS_READWRITE, &handle);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS open for load failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    size_t size = sizeof(s_history);
-    err = nvs_get_blob(handle, "history", &s_history, &size);
-
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        history_reset();
-    } else if (err != ESP_OK || size != sizeof(s_history) || s_history.magic != HISTORY_MAGIC || s_history.version != HISTORY_VERSION) {
-        ESP_LOGW(TAG, "Invalid NVS history, starting empty");
-        history_reset();
-    }
-
-    size = sizeof(s_settings);
-    err = nvs_get_blob(handle, "settings", &s_settings, &size);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        settings_reset();
-    } else if (err != ESP_OK || size != sizeof(s_settings) || s_settings.magic != SETTINGS_MAGIC || s_settings.version != SETTINGS_VERSION) {
-        ESP_LOGW(TAG, "Invalid NVS settings, using defaults");
-        settings_reset();
-    }
-    s_settings.brightness_pct = clamp_int(s_settings.brightness_pct, 0, 100);
-    s_settings.sleep_timeout_s = clamp_int(s_settings.sleep_timeout_s, 5, 3600);
-
-    session_store_t session;
-    size = sizeof(session);
-    err = nvs_get_blob(handle, "session", &session, &size);
-    if (err == ESP_OK && size == sizeof(session) && session.magic == SESSION_MAGIC && session.version == SESSION_VERSION && session.active) {
-        s_rows = session.rows < 0 ? 0 : session.rows;
-        s_accumulated_active_ms = session.accumulated_active_ms < 0 ? 0 : session.accumulated_active_ms;
-        s_session_state = (session.state == SESSION_PAUSED) ? SESSION_PAUSED : SESSION_ACTIVE;
-        s_session_started_ms = now_ms();
-        s_active_started_ms = s_session_started_ms;
-        ESP_LOGI(TAG, "Session restored rows=%d state=%d", s_rows, s_session_state);
-    }
-
-    nvs_close(handle);
+    storage_save_session(s_rows, accumulated_active_ms, s_session_state);
 }
 
 static void history_add(int rows, int duration_s, int reason)
@@ -514,7 +305,7 @@ static void history_add(int rows, int duration_s, int reason)
     }
     s_history.total_rows += rows;
     s_history.total_seconds += duration_s;
-    storage_save();
+    storage_save_history(&s_history);
 }
 
 static esp_err_t lcd_init(void)
@@ -670,15 +461,19 @@ static void ui_create(void)
     lv_obj_align(s_settings_title_label, LV_ALIGN_TOP_MID, 0, 46);
     lv_obj_add_flag(s_settings_title_label, LV_OBJ_FLAG_HIDDEN);
 
-    s_settings_ip_label = lv_label_create(scr);
-    lv_obj_set_style_text_color(s_settings_ip_label, UI_TEXT_COLOR, 0);
-    lv_obj_set_style_text_font(s_settings_ip_label, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_align(s_settings_ip_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_width(s_settings_ip_label, 230);
-    lv_label_set_long_mode(s_settings_ip_label, LV_LABEL_LONG_WRAP);
-    lv_label_set_text(s_settings_ip_label, SETTINGS_AP_IP);
-    lv_obj_align(s_settings_ip_label, LV_ALIGN_CENTER, 0, 10);
-    lv_obj_add_flag(s_settings_ip_label, LV_OBJ_FLAG_HIDDEN);
+    s_settings_qr = lv_qrcode_create(scr, 145, UI_TEXT_COLOR, UI_PAUSE_BG_COLOR);
+    const char wifi_qr_payload[] = "WIFI:T:nopass;S:" SETTINGS_AP_SSID ";;";
+    lv_qrcode_update(s_settings_qr, wifi_qr_payload, strlen(wifi_qr_payload));
+    lv_obj_align(s_settings_qr, LV_ALIGN_CENTER, 0, -12);
+    lv_obj_add_flag(s_settings_qr, LV_OBJ_FLAG_HIDDEN);
+
+    s_settings_url_label = lv_label_create(scr);
+    lv_obj_set_style_text_color(s_settings_url_label, UI_TEXT_COLOR, 0);
+    lv_obj_set_style_text_font(s_settings_url_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_align(s_settings_url_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_text(s_settings_url_label, "http://" SETTINGS_AP_IP);
+    lv_obj_align(s_settings_url_label, LV_ALIGN_BOTTOM_MID, 0, -18);
+    lv_obj_add_flag(s_settings_url_label, LV_OBJ_FLAG_HIDDEN);
 
     s_version_label = lv_label_create(scr);
     lv_obj_set_style_text_color(s_version_label, UI_TEXT_COLOR, 0);
@@ -791,247 +586,13 @@ static void startup_melody_update(int64_t now)
     }
 }
 
-static const char *checked_attr(bool value)
+static void settings_saved(const settings_store_t *settings, void *ctx)
 {
-    return value ? " checked" : "";
-}
-
-static esp_err_t settings_page_send(httpd_req_t *req)
-{
-    char page[1800];
-    int len = snprintf(page, sizeof(page),
-        "<!doctype html><html><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-        "<title>KAST Settings</title>"
-        "<style>body{font-family:system-ui,sans-serif;margin:0;background:#bfe3ff;color:#454449;}"
-        "main{max-width:460px;margin:0 auto;padding:24px;}h1{font-size:34px;margin:0 0 8px;}"
-        ".card{background:rgba(255,255,255,.68);border-radius:22px;padding:18px;margin:16px 0;}"
-        "label{display:block;font-size:18px;margin:12px 0;}input[type=number],input[type=range]{width:100%%;}"
-        "button{width:100%%;border:0;border-radius:18px;background:#454449;color:white;font-size:22px;padding:14px;}"
-        ".hint{font-size:15px;opacity:.8}</style></head><body><main>"
-        "<h1>Settings</h1>"
-        "<form action='http://%s/save' method='get'>"
-        "<div class='card'><label><input type='checkbox' name='boot_beep' value='1'%s> Boot beep</label></div>"
-        "<div class='card'><label>Brightness: <span id='bv'>%u</span>%%</label>"
-        "<input type='range' min='0' max='100' name='brightness' value='%u' oninput='bv.textContent=this.value'></div>"
-        "<div class='card'><label><input type='checkbox' name='sleep' value='1'%s> Screen sleep</label>"
-        "<label>Dim after, seconds<input type='number' min='5' max='3600' name='sleep_timeout' value='%u'></label></div>"
-        "<button type='submit'>Save</button></form></main></body></html>",
-        SETTINGS_AP_IP,
-        checked_attr(s_settings.boot_beep_enabled),
-        (unsigned)s_settings.brightness_pct,
-        (unsigned)s_settings.brightness_pct,
-        checked_attr(s_settings.sleep_enabled),
-        (unsigned)s_settings.sleep_timeout_s);
-
-    if (len < 0) {
-        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "render failed");
-    }
-    if (len >= (int)sizeof(page)) {
-        len = sizeof(page) - 1;
-    }
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    return httpd_resp_send(req, page, len);
-}
-
-static bool query_has_key(const char *query, const char *key)
-{
-    char value[8];
-    return httpd_query_key_value(query, key, value, sizeof(value)) == ESP_OK;
-}
-
-static int query_int(const char *query, const char *key, int fallback)
-{
-    char value[16];
-    if (httpd_query_key_value(query, key, value, sizeof(value)) != ESP_OK) {
-        return fallback;
-    }
-    return atoi(value);
-}
-
-static esp_err_t settings_save_handler(httpd_req_t *req)
-{
-    char query[160] = {0};
-    ESP_LOGI(TAG, "Settings save request uri=%s", req->uri);
-    if (httpd_req_get_url_query_str(req, query, sizeof(query)) == ESP_OK) {
-        ESP_LOGI(TAG, "Settings save query=%s", query);
-        s_settings.boot_beep_enabled = query_has_key(query, "boot_beep");
-        s_settings.brightness_pct = clamp_int(query_int(query, "brightness", s_settings.brightness_pct), 0, 100);
-        s_settings.sleep_enabled = query_has_key(query, "sleep");
-        s_settings.sleep_timeout_s = clamp_int(query_int(query, "sleep_timeout", s_settings.sleep_timeout_s), 5, 3600);
-        settings_save();
-        s_display_dimmed = false;
-        activity_mark(now_ms());
-        backlight_apply();
-        ESP_LOGI(TAG, "Settings saved boot_beep=%d brightness=%u sleep=%d sleep_timeout=%u",
-                 s_settings.boot_beep_enabled, (unsigned)s_settings.brightness_pct,
-                 s_settings.sleep_enabled, (unsigned)s_settings.sleep_timeout_s);
-    }
-    httpd_resp_set_status(req, "303 See Other");
-    httpd_resp_set_hdr(req, "Location", "http://" SETTINGS_AP_IP "/?saved=1");
-    return httpd_resp_send(req, "Saved", HTTPD_RESP_USE_STRLEN);
-}
-
-static esp_err_t captive_handler(httpd_req_t *req)
-{
-    if (strstr(req->uri, "/save") != NULL) {
-        return settings_save_handler(req);
-    }
-    return settings_page_send(req);
-}
-
-static void dns_task(void *arg)
-{
-    (void)arg;
-    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (sock < 0) {
-        ESP_LOGW(TAG, "DNS socket create failed");
-        s_dns_task = NULL;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    struct timeval timeout = { .tv_sec = 1, .tv_usec = 0 };
-    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-
-    struct sockaddr_in server_addr = {
-        .sin_family = AF_INET,
-        .sin_port = htons(SETTINGS_DNS_PORT),
-        .sin_addr.s_addr = htonl(INADDR_ANY),
-    };
-    if (bind(sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        ESP_LOGW(TAG, "DNS bind failed");
-        close(sock);
-        s_dns_task = NULL;
-        vTaskDelete(NULL);
-        return;
-    }
-
-    uint8_t buf[512];
-    while (s_dns_running) {
-        struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
-        int len = recvfrom(sock, buf, sizeof(buf), 0, (struct sockaddr *)&client_addr, &client_len);
-        if (len <= 12) {
-            continue;
-        }
-
-        int q_end = 12;
-        while (q_end < len && buf[q_end] != 0) {
-            q_end += buf[q_end] + 1;
-        }
-        if (q_end + 5 > len) {
-            continue;
-        }
-
-        uint8_t resp[576];
-        if (len + 16 > (int)sizeof(resp)) {
-            continue;
-        }
-        memcpy(resp, buf, len);
-        resp[2] = 0x81;
-        resp[3] = 0x80;
-        resp[6] = 0x00;
-        resp[7] = 0x01;
-        resp[8] = 0x00;
-        resp[9] = 0x00;
-        resp[10] = 0x00;
-        resp[11] = 0x00;
-
-        int pos = len;
-        resp[pos++] = 0xC0;
-        resp[pos++] = 0x0C;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x01;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x01;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x3C;
-        resp[pos++] = 0x00;
-        resp[pos++] = 0x04;
-        resp[pos++] = 192;
-        resp[pos++] = 168;
-        resp[pos++] = 4;
-        resp[pos++] = 1;
-        sendto(sock, resp, pos, 0, (struct sockaddr *)&client_addr, client_len);
-    }
-
-    close(sock);
-    s_dns_task = NULL;
-    vTaskDelete(NULL);
-}
-
-static esp_err_t portal_start(void)
-{
-    if (s_portal_running) {
-        return ESP_OK;
-    }
-    if (!s_wifi_started) {
-        ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "esp_netif_init failed");
-        ESP_RETURN_ON_ERROR(esp_event_loop_create_default(), TAG, "event loop failed");
-        esp_netif_create_default_wifi_ap();
-        wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-        ESP_RETURN_ON_ERROR(esp_wifi_init(&cfg), TAG, "wifi init failed");
-        s_wifi_started = true;
-    }
-
-    wifi_config_t wifi_config = {0};
-    strncpy((char *)wifi_config.ap.ssid, SETTINGS_AP_SSID, sizeof(wifi_config.ap.ssid));
-    wifi_config.ap.ssid_len = strlen(SETTINGS_AP_SSID);
-    wifi_config.ap.channel = 1;
-    wifi_config.ap.max_connection = 4;
-    wifi_config.ap.authmode = WIFI_AUTH_OPEN;
-
-    ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_AP), TAG, "wifi set mode failed");
-    ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &wifi_config), TAG, "wifi set config failed");
-    ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "wifi start failed");
-
-    httpd_config_t server_config = HTTPD_DEFAULT_CONFIG();
-    server_config.uri_match_fn = httpd_uri_match_wildcard;
-    ESP_RETURN_ON_ERROR(httpd_start(&s_http_server, &server_config), TAG, "httpd start failed");
-    httpd_uri_t save_handler = {
-        .uri = "/save",
-        .method = HTTP_GET,
-        .handler = settings_save_handler,
-        .user_ctx = NULL,
-    };
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &save_handler), TAG, "httpd save handler failed");
-    httpd_uri_t handler = {
-        .uri = "/*",
-        .method = HTTP_GET,
-        .handler = captive_handler,
-        .user_ctx = NULL,
-    };
-    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_http_server, &handler), TAG, "httpd handler failed");
-
-    s_dns_running = true;
-    xTaskCreate(dns_task, "dns_task", 4096, NULL, 4, &s_dns_task);
-    s_portal_running = true;
-    s_screen_mode = SCREEN_SETTINGS;
-    s_ui_dirty = true;
-    ESP_LOGI(TAG, "Settings AP started: %s http://%s", SETTINGS_AP_SSID, SETTINGS_AP_IP);
-    return ESP_OK;
-}
-
-static void portal_stop(void)
-{
-    if (!s_portal_running) {
-        return;
-    }
-    s_dns_running = false;
-    if (s_http_server != NULL) {
-        httpd_stop(s_http_server);
-        s_http_server = NULL;
-    }
-    esp_wifi_stop();
-    s_portal_running = false;
-    if (s_screen_mode == SCREEN_SETTINGS) {
-        s_screen_mode = SCREEN_MAIN;
-    }
-    s_ui_dirty = true;
-    ESP_LOGI(TAG, "Settings AP stopped");
+    (void)ctx;
+    storage_save_settings(settings);
+    s_display_dimmed = false;
+    activity_mark(now_ms());
+    backlight_apply();
 }
 
 static void portal_toggle(void)
@@ -1039,9 +600,16 @@ static void portal_toggle(void)
     if (s_screen_mode != SCREEN_MAIN && s_screen_mode != SCREEN_SETTINGS) {
         return;
     }
-    if (s_portal_running) {
-        portal_stop();
-    } else if (portal_start() != ESP_OK) {
+    if (wifi_portal_is_running()) {
+        wifi_portal_stop();
+        if (s_screen_mode == SCREEN_SETTINGS) {
+            s_screen_mode = SCREEN_MAIN;
+        }
+        s_ui_dirty = true;
+    } else if (wifi_portal_start(&s_settings, settings_saved, NULL) == ESP_OK) {
+        s_screen_mode = SCREEN_SETTINGS;
+        s_ui_dirty = true;
+    } else {
         ESP_LOGW(TAG, "Settings AP start failed");
     }
 }
@@ -1115,6 +683,11 @@ static void ui_update(void)
     lv_obj_set_style_bg_color(lv_scr_act(), bg_color, 0);
     lv_label_set_text(s_bat_label, bat_buf);
     lv_obj_align(s_bat_label, LV_ALIGN_TOP_MID, 0, 14);
+    if (show_settings) {
+        lv_obj_add_flag(s_bat_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(s_bat_label, LV_OBJ_FLAG_HIDDEN);
+    }
 
     lv_label_set_text(s_rows_label_bold_x, rows_buf);
     lv_obj_align(s_rows_label_bold_x, LV_ALIGN_CENTER, 1, 0);
@@ -1168,19 +741,27 @@ static void ui_update(void)
     }
 
     lv_label_set_text(s_settings_title_label, "SETTINGS");
-    lv_obj_align(s_settings_title_label, LV_ALIGN_TOP_MID, 0, 46);
-    lv_label_set_text_fmt(s_settings_ip_label, "Wi-Fi: %s\nhttp://%s", SETTINGS_AP_SSID, SETTINGS_AP_IP);
-    lv_obj_align(s_settings_ip_label, LV_ALIGN_CENTER, 0, 26);
+    lv_obj_align(s_settings_title_label, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(s_settings_qr, LV_ALIGN_CENTER, 0, -12);
+    lv_label_set_text(s_settings_url_label, "http://" SETTINGS_AP_IP);
+    lv_obj_align(s_settings_url_label, LV_ALIGN_BOTTOM_MID, 0, -18);
     if (show_settings) {
         lv_obj_clear_flag(s_settings_title_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(s_settings_ip_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_settings_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_settings_url_label, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(s_settings_title_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_settings_ip_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_settings_qr, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_settings_url_label, LV_OBJ_FLAG_HIDDEN);
     }
 
     lv_label_set_text(s_version_label, APP_VERSION);
     lv_obj_align(s_version_label, LV_ALIGN_BOTTOM_MID, 0, -14);
+    if (show_settings) {
+        lv_obj_add_flag(s_version_label, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_clear_flag(s_version_label, LV_OBJ_FLAG_HIDDEN);
+    }
     lvgl_port_unlock();
 
     backlight_apply();
@@ -1239,7 +820,7 @@ static void session_finish(int reason)
     s_rows = 0;
     s_accumulated_active_ms = 0;
     s_universal_short_count = 0;
-    session_store_clear();
+    storage_clear_session();
     s_ui_dirty = true;
 }
 
@@ -1400,8 +981,8 @@ static void handle_power_button(int64_t now)
         if (held_ms >= BUTTON_LONG_MS) {
             ESP_LOGI(TAG, "POWER_LONG");
             session_store_save();
-            storage_save();
-            portal_stop();
+            storage_save_history(&s_history);
+            wifi_portal_stop();
             gpio_set_level(PIN_PWR_SYS_EN, 0);
         }
     }
@@ -1524,7 +1105,16 @@ void app_main(void)
         nvs_err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(nvs_err);
-    storage_load();
+    session_restore_t restored_session;
+    storage_load(&s_history, &s_settings, &restored_session);
+    if (restored_session.active) {
+        s_rows = restored_session.rows;
+        s_accumulated_active_ms = restored_session.accumulated_active_ms;
+        s_session_state = restored_session.state;
+        s_session_started_ms = now_ms();
+        s_active_started_ms = s_session_started_ms;
+        ESP_LOGI(TAG, "Session restored rows=%d state=%d", s_rows, s_session_state);
+    }
 
     power_latch_init();
     low_power_peripherals_init();
