@@ -7,7 +7,8 @@
 - Short `+` continues to add one row and does not enable AP.
 - After AP starts, the device screen uses the pause color scheme.
 - After AP starts, the device screen shows `SETTINGS`.
-- After AP starts, the device screen shows `KAST Settings` and `http://192.168.4.1`.
+- After AP starts, the device screen shows a QR code for joining `KAST Settings`.
+- After AP starts, the device screen no longer shows manual SSID and URL text in place of the QR code.
 - Battery percentage remains visible and is not covered by missing glyph boxes or settings text.
 - After joining the device Wi-Fi AP, the OS may open the captive portal automatically.
 - If captive portal does not open automatically, the settings page is available at `http://192.168.4.1`.
@@ -31,7 +32,7 @@
 - Start with empty settings and verify defaults: boot beep enabled, brightness `50`, screen sleep disabled, timeout `60 s`.
 - Short press `+` from the main screen and verify rows increase by `1` and AP stays off.
 - Hold `+` for `3 s` from the main screen and verify AP starts.
-- Verify the device screen shows `SETTINGS`, `KAST Settings`, and `http://192.168.4.1` without overlap.
+- Verify the device screen shows `SETTINGS` and a scannable Wi-Fi QR code without overlap.
 - Join `KAST Settings` from a phone and verify captive portal or manual URL.
 - Change brightness, press `Save`, and verify brightness applies and persists.
 - Change screen sleep and timeout, press `Save`, and verify dimming behavior.

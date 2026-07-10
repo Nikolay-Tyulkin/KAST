@@ -4047,8 +4047,7 @@ CONFIG_LV_USE_GRID=y
 # CONFIG_LV_USE_SJPG is not set
 # default:
 # CONFIG_LV_USE_GIF is not set
-# default:
-# CONFIG_LV_USE_QRCODE is not set
+CONFIG_LV_USE_QRCODE=y
 # default:
 # CONFIG_LV_USE_FREETYPE is not set
 # default:

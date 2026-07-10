@@ -82,7 +82,8 @@ press within a `2 s` window, then confirmation with one short press within
 `5 s`.
 
 Hold `+` for `3 s` in the main screen to toggle the settings Wi-Fi AP. When AP
-is enabled, the device screen shows `SETTINGS` and the manual settings URL.
+is enabled, the device screen shows `SETTINGS` and a QR code for joining the
+settings Wi-Fi network.
 
 ## Settings Portal
 
@@ -90,6 +91,7 @@ The device can expose a local Wi-Fi settings page without an external router.
 
 - AP SSID: `KAST Settings`.
 - Manual URL: `http://192.168.4.1`.
+- The device settings screen shows a QR code for connecting to the settings AP.
 - Captive portal DNS tries to open the settings page automatically after joining
   the AP; if the OS does not open it, use the manual URL.
 - Settings are applied after `Save` and persisted in NVS.

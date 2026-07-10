@@ -19,7 +19,7 @@
 7. Add an HTTP settings page with a `Save` handler.
 8. Add captive portal DNS interception with fallback access at `http://192.168.4.1`.
 9. Apply settings to boot beep, backlight brightness, and screen sleep dimming.
-10. Add the device settings screen using the pause color scheme, title `SETTINGS`, SSID, and manual URL.
+10. Add the device settings screen using the pause color scheme, title `SETTINGS`, and a Wi-Fi QR code.
 11. Increase the app partition preset to `single app large`, because Wi-Fi and HTTP support exceed the default `1 MB` app partition.
 12. Build and flash firmware for device verification.
 
@@ -48,7 +48,7 @@
 - After button handling: short `+` increments rows, long `+` toggles AP.
 - After HTTP server: open `http://192.168.4.1`, change settings, press `Save`, and confirm settings apply.
 - After captive portal: join `KAST Settings` from a phone and verify automatic portal opening or manual fallback.
-- After settings screen: verify pause color, `SETTINGS`, SSID, URL, and battery percentage do not overlap.
+- After settings screen: verify pause color, `SETTINGS`, Wi-Fi QR code, and battery percentage do not overlap.
 - After screen sleep: verify the display dims after the configured timeout and wakes on button activity.
 
 ## Migrations And Data
@@ -73,7 +73,7 @@
 - DNS captive portal handling may differ across Android, iOS, Windows, and macOS.
 - Frequent row writes may increase NVS flash wear.
 - AP mode increases battery drain.
-- Screen sleep may hide the manual URL while AP is enabled.
+- Screen sleep may hide the Wi-Fi QR code while AP is enabled.
 - LVGL Cyrillic text requires a font with Cyrillic glyphs; the current device screen uses English to avoid missing glyph boxes.
 
 ## Decisions Requiring Confirmation
