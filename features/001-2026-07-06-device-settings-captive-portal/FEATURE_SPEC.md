@@ -18,9 +18,9 @@ The current knitting session must also survive power loss. Losing the current ro
 ## User Scenarios
 
 - From the main screen, the user holds `+` for `3 s`; the device enables its Wi-Fi access point and opens the settings screen.
-- The settings screen uses the pause color scheme, shows `SETTINGS`, and shows the manual URL.
+- The settings screen uses the pause color scheme, shows `SETTINGS`, and shows a Wi-Fi QR code.
 - The user joins the `KAST Settings` Wi-Fi AP. The OS may open the captive portal automatically.
-- If the captive portal does not open, the user opens `http://192.168.4.1` manually.
+- If the captive portal does not open, the user opens `http://192.168.4.1` manually from documentation or known fallback behavior.
 - The user changes settings on the web page and presses `Save`; the device applies and persists the settings.
 - The user holds `+` for `3 s` again from the main/settings state; the device disables the Wi-Fi AP.
 - The user changes rows with `+` or `-`, powers the device off, powers it on again, and the row session continues from the last saved value.
@@ -34,7 +34,9 @@ The current knitting session must also survive power loss. Losing the current ro
 - If the captive portal does not open automatically, the settings page must be available at `http://192.168.4.1`.
 - The settings screen on the device must use the same color scheme as pause.
 - The settings screen on the device must show the English title `SETTINGS`.
-- The settings screen must show the AP SSID and manual URL without overlapping the battery percentage.
+- The settings screen must show a QR code for joining the `KAST Settings` Wi-Fi AP.
+- The settings screen must not show manual Wi-Fi connection text in place of the QR code.
+- The settings screen content must not overlap the battery percentage.
 - The web settings page must be in English.
 - The web settings page must contain a boot beep on/off setting.
 - Boot beep controls only the startup melody, not all possible device sounds.
@@ -81,7 +83,7 @@ The current knitting session must also survive power loss. Losing the current ro
 
 - Should the AP be open forever, or should it get an optional password later?
 - Should AP automatically stop after an inactivity timeout?
-- Should screen sleep be disabled while AP is enabled so the manual URL remains visible?
+- Should screen sleep be disabled while AP is enabled so the QR code remains visible?
 - Should the first button press after screen dimming only wake the screen, or also perform the button action?
 - Should row persistence use a wear-aware log format if the device is used heavily for long sessions?
 
@@ -92,4 +94,4 @@ The current knitting session must also survive power loss. Losing the current ro
 - Risk: captive portal behavior is OS-specific and automatic opening cannot be guaranteed on every phone or desktop OS.
 - Risk: saving rows after every change increases flash writes; future wear-aware storage may be needed.
 - Risk: enabled AP increases battery drain.
-- Risk: if screen sleep dims while AP is on, the user may not see the manual URL until waking the screen.
+- Risk: if screen sleep dims while AP is on, the user may not see the QR code until waking the screen.
